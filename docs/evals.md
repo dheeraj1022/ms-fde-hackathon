@@ -2,7 +2,7 @@
 
 Use this file to record the output of the local eval harness at [py/apps/eval/run_eval.py](../py/apps/eval/run_eval.py). Fill in the numbers from your latest run, then add concise analysis.
 
-## Run Configuration
+## Run configuration
 
 | Field | Value |
 |---|---|
@@ -12,7 +12,7 @@ Use this file to record the output of the local eval harness at [py/apps/eval/ru
 | Models used | |
 | Notes | |
 
-## Local Runner Summary
+## Local runner summary
 
 These fields map directly to the top-level runner output.
 
@@ -23,7 +23,7 @@ These fields map directly to the top-level runner output.
 | Efficiency (avg) | |
 | Robustness (avg) | |
 
-## Per-Task Summary
+## Per-task summary
 
 These rows mirror the task summary block printed by the local runner.
 
@@ -35,7 +35,7 @@ These rows mirror the task summary block printed by the local runner.
 
 ## Task 1: Signal Triage
 
-### Resolution Dimensions
+### Resolution dimensions
 
 | Dimension | Weight | Score | Notes |
 |---|---|---|---|
@@ -45,7 +45,7 @@ These rows mirror the task summary block printed by the local runner.
 | `missing_info` | 17% | | |
 | `escalation` | 11% | | |
 
-### Operational Metrics
+### Operational metrics
 
 | Metric | Value |
 |---|---|
@@ -62,7 +62,7 @@ These rows mirror the task summary block printed by the local runner.
 | Items scored | |
 | Items errored | |
 
-### Probe Results
+### Probe results
 
 | Probe | Pass/Fail | Notes |
 |---|---|---|
@@ -74,20 +74,20 @@ These rows mirror the task summary block printed by the local runner.
 | concurrent_burst | | |
 | cold_start | | |
 
-### Error Analysis
+### Error analysis
 
 <!-- Which signal types failed? Where did routing, priority, or missing_info break down? -->
 
 ## Task 2: Document Extraction
 
-### Resolution Dimensions
+### Resolution dimensions
 
 | Dimension | Weight | Score | Notes |
 |---|---|---|---|
 | `information_accuracy` | 70% | | |
 | `text_fidelity` | 30% | | |
 
-### Operational Metrics
+### Operational metrics
 
 | Metric | Value |
 |---|---|
@@ -104,7 +104,7 @@ These rows mirror the task summary block printed by the local runner.
 | Items scored | |
 | Items errored | |
 
-### Probe Results
+### Probe results
 
 | Probe | Pass/Fail | Notes |
 |---|---|---|
@@ -116,13 +116,13 @@ These rows mirror the task summary block printed by the local runner.
 | concurrent_burst | | |
 | cold_start | | |
 
-### Error Analysis
+### Error analysis
 
 <!-- Which document types, fields, or PDF cases failed? Where did normalization help or hurt? -->
 
 ## Task 3: Workflow Orchestration
 
-### Resolution Dimensions
+### Resolution dimensions
 
 | Dimension | Weight | Score | Notes |
 |---|---|---|---|
@@ -132,7 +132,7 @@ These rows mirror the task summary block printed by the local runner.
 | `ordering_correctness` | 20% | | |
 | `constraint_compliance` | 40% | | |
 
-### Operational Metrics
+### Operational metrics
 
 | Metric | Value |
 |---|---|
@@ -149,7 +149,7 @@ These rows mirror the task summary block printed by the local runner.
 | Items scored | |
 | Items errored | |
 
-### Probe Results
+### Probe results
 
 | Probe | Pass/Fail | Notes |
 |---|---|---|
@@ -161,16 +161,16 @@ These rows mirror the task summary block printed by the local runner.
 | concurrent_burst | | |
 | cold_start | | |
 
-### Error Analysis
+### Error analysis
 
 <!-- Which workflow types failed? Were failures caused by tool choice, parameters, ordering, or constraint handling? -->
 
-## Cross-Task Takeaways
+## Cross-task takeaways
 
-### What Improved The Score
+### What improved the score
 
 <!-- Which changes moved the needle across multiple tasks? Better prompts, validation, retries, model changes, caching, etc. -->
 
-### Known Limitations
+### Known limitations
 
 <!-- Where does the system still break? Be concrete about likely failure modes per task and what you would fix next. -->

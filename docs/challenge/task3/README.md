@@ -2,7 +2,7 @@
 
 `POST /orchestrate`
 
-Given a goal, a set of tools, and a list of constraints, execute the workflow and return what happened. Actually call the tools — the benchmark checks real execution, not just a plan that looks reasonable.
+Given a goal, a set of tools, and a list of constraints, execute the workflow and return what happened. Actually call the tools: the benchmark checks real execution, not just a plan that looks reasonable.
 
 Read the background:
 
@@ -10,7 +10,7 @@ Read the background:
 - [execution_guide.md](execution_guide.md) — how to think about execution
 - [engineering_review.md](engineering_review.md) — what judges look for
 
-## Request Contract
+## Request contract
 
 Input fields:
 
@@ -32,7 +32,7 @@ Input fields:
 
 See [../../../py/data/task3/input_schema.json](../../../py/data/task3/input_schema.json) for the formal schema.
 
-## Response Contract
+## Response contract
 
 Required output fields:
 
@@ -50,7 +50,7 @@ Common additional fields include:
 
 See [../../../py/data/task3/output_schema.json](../../../py/data/task3/output_schema.json) for the formal schema.
 
-## Resolution Scoring
+## Resolution scoring
 
 ```
 resolution = (0.20 x goal_completion + 0.15 x tool_selection + 0.05 x parameter_accuracy + 0.20 x ordering_correctness + 0.40 x constraint_compliance) x 100
@@ -64,13 +64,13 @@ resolution = (0.20 x goal_completion + 0.15 x tool_selection + 0.05 x parameter_
 | `ordering_correctness` | 20% | Dependency satisfaction |
 | `constraint_compliance` | 40% | Outcome assertions |
 
-## How Tool Calls Work
+## How tool calls work
 
-Each workflow scenario includes an `available_tools` array. Each tool has a `name`, `description`, `endpoint`, and `parameters`. **Your code should actually call these tool endpoints via HTTP** — the benchmark scores real execution, not a simulated plan.
+Each workflow scenario includes an `available_tools` array. Each tool has a `name`, `description`, `endpoint`, and `parameters`. Your code should actually call these tool endpoints via HTTP; the benchmark scores real execution, not a simulated plan.
 
-During **local testing**, the eval harness starts a mock tool service automatically on `localhost:9090`. It rewrites all tool endpoint URLs in the test data to point at this local service, and adds a `mock_service_url` field to each request. The mock service returns deterministic canned responses from `py/data/task3/public_eval_50_mock_responses.json`.
+During local testing, the eval harness starts a mock tool service automatically on `localhost:9090`. It rewrites all tool endpoint URLs in the test data to point at this local service, and adds a `mock_service_url` field to each request. The mock service returns deterministic canned responses from `py/data/task3/public_eval_50_mock_responses.json`.
 
-During **platform scoring**, the platform does the same rewriting — it points tool URLs at a production mock service and adds the `mock_service_url` field. Your code doesn't need to know the difference.
+During platform scoring, the platform does the same rewriting: it points tool URLs at a production mock service and adds the `mock_service_url` field. Your code doesn't need to know the difference.
 
 ### What your `/orchestrate` endpoint receives at scoring time
 
@@ -108,7 +108,7 @@ base = task["mock_service_url"]
 resp = httpx.post(f"{base}/crm_search", json={"filter": "...", "limit": 100})
 ```
 
-## Local Testing
+## Local testing
 
 The eval harness handles everything automatically:
 
@@ -158,14 +158,12 @@ curl -X POST http://localhost:9090/scenario/TASK-0015/crm_search -H "Content-Typ
 > *executing* the workflow correctly, not on memorising the public
 > answer key.
 
-## What's Hard
+## What's hard
 
 Multiple valid plans exist. Parameters need to be computed, not copied from the goal. Constraint violations tank your score even if the trace looks clean. Some workflows have ambiguous goals or failing tools. The benchmark tests what you actually did, not what you said you'd do.
 
 ## Tips
 
-- Call the tool endpoints via HTTP. Don't simulate responses — the scorer checks what you actually called.
-- `constraint_compliance` is 40% of resolution — it's the biggest lever.
+- Call the tool endpoints via HTTP. Don't simulate responses; the scorer checks what you actually called.
 - Small verifiable steps beat one opaque jump.
 - Handle failures explicitly. Crashing on a 503 is not recovery.
-- Inspect `py/data/task3/public_eval_50_mock_responses.json` to see what each tool returns — this is exactly what the mock service serves.

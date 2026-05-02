@@ -2,7 +2,7 @@
 
 Your Efficiency score (20% of each task) depends on P95 latency. Before submitting, stress-test your deployed API to know where you stand.
 
-## Quick Benchmarks with the Eval Harness
+## Quick benchmarks with the eval harness
 
 The built-in eval harness already measures latency per request. Run it to get your baseline:
 
@@ -20,7 +20,7 @@ make eval-orchestrate
 
 The output includes P95 latency, model cost tier, and the computed efficiency score.
 
-## Targeted Load Testing with hey
+## Targeted load testing with hey
 
 [hey](https://github.com/rakyll/hey) is a lightweight HTTP load generator. Install it and fire requests at your API to test throughput and concurrency handling.
 
@@ -112,7 +112,7 @@ hey -n 10 -c 2 -m POST \
   http://localhost:8000/orchestrate
 ```
 
-## Load Testing a Deployed API
+## Load testing a deployed API
 
 Test your actual Azure deployment to catch network latency, cold starts, and scaling behavior:
 
@@ -140,7 +140,7 @@ cd py/apps/eval
 python run_eval.py --endpoint "$API_URL"
 ```
 
-## What to Look For
+## What to look for
 
 | Metric | Target | Why |
 |--------|--------|-----|
@@ -151,7 +151,7 @@ python run_eval.py --endpoint "$API_URL"
 | Cold start | < 15 s | Probe #7 — first request after idle must succeed |
 | Error rate under load | < 5% | Errors reduce your resolution score |
 
-## Common Performance Bottlenecks
+## Common performance bottlenecks
 
 | Problem | Symptom | Fix |
 |---------|---------|-----|
@@ -162,7 +162,7 @@ python run_eval.py --endpoint "$API_URL"
 | Sequential tool calls | Slow orchestration | Parallelize independent tool calls where constraints allow |
 | No connection reuse | High latency variance | Use a singleton `AsyncClient` / `AsyncOpenAI`, don't recreate per request |
 
-## Efficiency Scoring Reference
+## Efficiency scoring reference
 
 ```
 efficiency = 0.60 × latency_score + 0.40 × cost_score

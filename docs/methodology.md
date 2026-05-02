@@ -4,7 +4,7 @@
 
 <!-- How did you break down 3 tasks under time pressure? Did you start with one task or scaffold all three? What was your strategy? -->
 
-## Time Allocation
+## Time allocation
 
 <!-- Roughly how did you spend your time across the 3 tasks? Which task got the most attention and why? -->
 
@@ -20,14 +20,14 @@
 
 <!-- How did you approach multi-step planning? How does your system handle tool failures? What was hardest about this task? -->
 
-## What Worked
+## What worked
 
 <!-- Which techniques, prompt strategies, or architectural decisions paid off across tasks? -->
 
-## What Didn't Work
+## What didn't work
 
 <!-- What did you try that failed? Why? -->
 
-## Key Learnings
+## Key learnings
 
 <!-- What would you do differently if you started over? What surprised you? -->

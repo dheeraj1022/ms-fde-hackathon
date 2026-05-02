@@ -1,6 +1,6 @@
 # Architecture
 
-## System Overview
+## System overview
 
 <!-- High-level description of your solution. What components does your system have? How do they interact? Diagram encouraged. -->
 
@@ -33,6 +33,6 @@
 
 <!-- How is your solution deployed? What cloud services, containers, or platforms? -->
 
-## Key Tradeoffs
+## Key tradeoffs
 
 <!-- What decisions did you make and why? Model size vs. latency? Accuracy vs. cost? Single model vs. model-per-task? What would you change for production? -->

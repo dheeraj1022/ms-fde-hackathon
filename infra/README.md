@@ -5,7 +5,7 @@
 
 The `infra/` folder contains infrastructure as code (IaC) configurations for provisioning and managing cloud resources using [Pulumi](https://www.pulumi.com/) with [Python and uv](https://www.pulumi.com/docs/iac/languages-sdks/python/#uv). Think of it as your station blueprint — except this station runs in Azure instead of orbiting at 0.3 AU.
 
-## Project Layout
+## Project layout
 
 ```
 infra/
@@ -15,7 +15,7 @@ infra/
     └── pyproject.toml   # Python dependencies (Pulumi SDK, Azure SDKs, etc.)
 ```
 
-## Getting Started
+## Getting started
 
 ```bash
 cd infra/app

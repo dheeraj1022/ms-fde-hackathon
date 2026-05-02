@@ -1,6 +1,6 @@
 # Submission
 
-## How to Submit
+## How to submit
 
 1. **Fork** this repo (your fork must be **public**)
 2. **Build** your solution — all 3 task endpoints + health check
@@ -12,7 +12,7 @@
 
 Think of submission like a deployment rollout — can the endpoints be called reliably, is the code legible, do the docs show you understood the problem?
 
-## Required Files
+## Required files
 
 ```
 your-repo/
@@ -26,9 +26,9 @@ your-repo/
 
 All three docs are mandatory. Missing one affects your Tier 2 (engineering quality) score.
 
-## What Gets Evaluated
+## What gets evaluated
 
-### Tier 1 — Deterministic (Public Leaderboard)
+### Tier 1: deterministic (public leaderboard)
 
 Your deployed API is called with a hidden eval set per task (T1: ~1,000, T2: ~500, T3: ~500).
 
@@ -48,7 +48,7 @@ After a submission completes you'll see your aggregate task scores and FDEBench 
 
 Eval items are also shuffled per submission — join responses on `request_id_key`, not on position. See [How Your Solution Is Scored — Platform behaviour you should know](../eval/fdebench.md#platform-behaviour-you-should-know) for the full list.
 
-### Tier 2 — LLM-as-Judge (Judges Only)
+### Tier 2: LLM-as-judge (judges only)
 
 Four agents read your repo. Scores are **not public** — they inform finalist selection.
 
@@ -61,7 +61,7 @@ Four agents read your repo. Scores are **not public** — they inform finalist s
 
 See the `engineering_review.md` in each [task folder](../challenge/) for what judges look for per task.
 
-## Required Documents
+## Required documents
 
 See [../challenge/README.md](../challenge/README.md) and the task briefs under [../challenge/](../challenge/) for the challenge context behind each document.
 
@@ -73,7 +73,7 @@ See [../challenge/README.md](../challenge/README.md) and the task briefs under [
 
 If you use the local runner at `py/apps/eval/run_eval.py` to gather your numbers, say so in `docs/evals.md` or `docs/methodology.md`. That makes your evaluation process easier to follow.
 
-## Pre-Submission Checklist
+## Pre-submission checklist
 
 ### Endpoints
 
@@ -113,7 +113,7 @@ If you use the local runner at `py/apps/eval/run_eval.py` to gather your numbers
 - [ ] Survives 20 concurrent requests (at least 18/20 must succeed)
 - [ ] Recovers from 60s idle (cold start)
 
-### Efficiency Headers (recommended)
+### Efficiency headers (recommended)
 
 - [ ] Responses include `X-Model-Name` header (required for cost scoring — model tier determines your cost score)
 

@@ -19,7 +19,7 @@ The public gold deliberately omits the `difficulty` and `adversarial_subtype` fi
 
 ---
 
-## Your Score (Tier 1)
+## Your score (Tier 1)
 
 ```
                 ┌─────────────┐
@@ -40,7 +40,7 @@ Each task gets its own composite. Your final FDEBench score is the **mean of all
 
 ---
 
-## Resolution — 50% of Each Task
+## Resolution: 50% of each task
 
 How accurate are your API responses? Each task is scored independently using deterministic F1 metrics against hidden gold data.
 
@@ -83,11 +83,11 @@ Multi-step planning and execution: understand the goal, select tools, execute in
 | Ordering correctness | 20% | Dependency/causal constraint satisfaction |
 | Constraint compliance | 40% | Outcome-based assertions (primary differentiator) |
 
-> **Tip:** Focus on getting every dimension right, not just the easy ones. Resolution is 50% of your score and the biggest lever you have. Test locally with sample data before submitting.
+> **Tip:** Test locally with sample data before submitting. Resolution is 50% of your score, so getting every dimension right matters.
 
 ---
 
-## Efficiency — 20% of Each Task
+## Efficiency: 20% of each task
 
 How fast and cheap is your solution?
 
@@ -105,7 +105,7 @@ P95 latency is normalized linearly, with **per-task thresholds** that reflect ea
 | Extract | ≤ 2,000 ms | ≥ 20,000 ms | Vision/OCR — inherently slower |
 | Orchestrate | ≤ 1,000 ms | ≥ 10,000 ms | Multi-step with tool calls |
 
-### Model Cost Tier (40%)
+### Model cost tier (40%)
 
 Based on the model name from your `X-Model-Name` response header:
 
@@ -121,7 +121,7 @@ Based on the model name from your `X-Model-Name` response header:
 
 ---
 
-## Robustness — 30% of Each Task
+## Robustness: 30% of each task
 
 Can your API handle the unexpected?
 
@@ -139,11 +139,11 @@ robustness = 0.60 × adversarial_accuracy + 0.40 × api_resilience
 >
 > Each task's robustness sub-score is normalised by per-task adversarial fraction before being summed into the task score, so all 3 tasks contribute equally to the FDEBench aggregate regardless of their internal hard/easy mix. Optimising one task's robustness will not "steal" weight from the other tasks.
 
-### Adversarial Accuracy (60%)
+### Adversarial accuracy (60%)
 
 Your resolution score is recalculated on the adversarial subset described above. Same scoring dimensions, tougher inputs. Because the public gold doesn't carry `difficulty`, you cannot self-score adversarial accuracy locally — only your aggregate resolution.
 
-### API Resilience (40%)
+### API resilience (40%)
 
 7 automated probes test error handling, concurrency, and cold-start recovery. Each is binary pass/fail.
 
@@ -165,7 +165,7 @@ api_resilience = probes_passed / 7
 
 ---
 
-## Tier 2 — Engineering Review (Judges Only)
+## Tier 2: engineering review (judges only)
 
 Applied to top submissions. AI-assisted agents review your **repository code**, not your API responses. Scores are visible only to judges and help differentiate finalists with similar Tier 1 scores.
 
@@ -202,7 +202,7 @@ Applied to top submissions. AI-assisted agents review your **repository code**, 
 
 ---
 
-## Scoring Code
+## Scoring code
 
 The exact scoring logic lives in the fdebenchkit library at `py/common/libs/fdebenchkit/`:
 
@@ -214,11 +214,9 @@ The exact scoring logic lives in the fdebenchkit library at `py/common/libs/fdeb
 | `weights.py` | All Tier 1 weights, normalization thresholds, and composite formulas |
 | `probes.py` | The 7 API resilience probes |
 
-Read the source — there are no hidden rules. What you see is what scores you.
-
 ---
 
-## Platform behaviour you should know
+## Platform behaviour to know about
 
 A few platform behaviours are not visible from the API surface and will silently break naive assumptions:
 

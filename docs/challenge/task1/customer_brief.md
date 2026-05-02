@@ -7,7 +7,7 @@
 > emergencies, hull breach always escalates) live in the video. This file
 > only documents the team labels you must emit.
 
-## Specialist Teams
+## Specialist teams
 
 These are the seven valid `assigned_team` values. Match exact strings.
 

@@ -1,15 +1,15 @@
 # Eval Harness
 
-Runs the same scoring as the platform, locally. Full Tier 1 breakdown: resolution, efficiency, robustness, probes — per task.
+Runs the same scoring as the platform, locally. Full Tier 1 breakdown: resolution, efficiency, robustness, probes, per task.
 
 Code: `py/apps/eval/run_eval.py`. Scoring library: `py/common/libs/fdebenchkit/`.
 
 | Guide | What's inside |
 |-------|---------------|
-| **[FDEBench Scoring](fdebench.md)** | Full breakdown of the scoring formula — resolution dimensions per task, efficiency thresholds, robustness probes, Tier 2 engineering review |
-| **[Load Testing](load-testing.md)** | How to stress-test your API locally and in production — hey benchmarks, concurrency tests, cold start checks, performance bottleneck fixes |
+| [FDEBench scoring](fdebench.md) | Full breakdown of the scoring formula: resolution dimensions per task, efficiency thresholds, robustness probes, Tier 2 engineering review |
+| [Load testing](load-testing.md) | How to stress-test your API locally and in production: hey benchmarks, concurrency tests, cold start checks, performance bottleneck fixes |
 
-## Quick Start
+## Quick start
 
 ```bash
 cd py
@@ -45,16 +45,26 @@ python run_eval.py \
 
 For Task 3 (orchestration), the harness automatically starts a mock tool service on port 9090 that serves deterministic tool responses. Your `/orchestrate` endpoint can call these tools via HTTP during evaluation. See `py/apps/eval/mock_tool_service.py` for details.
 
-## What It Scores
+> **T3 local scores are calibration-only.** The shipped
+> `py/data/task3/public_eval_50_mock_responses.json` is the deterministic
+> answer key for the 50 public scenarios; the local mock service replays
+> it byte-for-byte, so a correct orchestration loop will trend toward a
+> perfect public T3. Use the local score to verify your wiring (contract,
+> parsing, constraints) — not as a leaderboard preview. The hidden eval
+> rotates every `task_id` per submission and serves from a private mock
+> service. See [Task 3 README](../challenge/task3/README.md#local-testing)
+> for details.
+
+## What it scores
 
 ```
 tier1_k = 0.50 x Resolution + 0.20 x Efficiency + 0.30 x Robustness
 fdebench = mean(tier1_task1, tier1_task2, tier1_task3)
 ```
 
-- **Resolution** (50%) — per-task scoring against gold answers. Weights differ by task.
-- **Efficiency** (20%) — P95 latency + model tier cost from `X-Model-Name` header.
-- **Robustness** (30%) — adversarial accuracy (60%) + 7 API resilience probes (40%).
+- Resolution (50%): per-task scoring against gold answers. Weights differ by task.
+- Efficiency (20%): P95 latency + model tier cost from `X-Model-Name` header.
+- Robustness (30%): adversarial accuracy (60%) + 7 API resilience probes (40%).
 
 ## Output
 
@@ -67,7 +77,7 @@ For each run, the harness prints:
 - Probe results (pass/fail per probe)
 - Items scored and items errored
 
-## Checked-In Datasets
+## Checked-in datasets
 
 | Task | Items | Input | Gold |
 |------|-------|-------|------|
@@ -76,7 +86,7 @@ For each run, the harness prints:
 | Extract | 50 | `py/data/task2/public_eval_50.json` | `public_eval_50_gold.json` |
 | Orchestrate | 50 | `py/data/task3/public_eval_50.json` | `public_eval_50_gold.json` |
 
-## fdebenchkit Library
+## fdebenchkit library
 
 Located at `py/common/libs/fdebenchkit/`. The harness adds it to `sys.path` automatically.
 

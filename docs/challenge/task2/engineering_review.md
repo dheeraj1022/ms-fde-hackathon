@@ -33,7 +33,7 @@ What judges look for in your extraction code. Tier 2 doesn't affect the leaderbo
 
 ## Tips
 
-- Documents are images — you need a vision-capable model (GPT-4o, GPT-4.1, etc.).
+- Documents are images, so you need a vision-capable model.
 - Each document has a different schema. Your prompt should include the `json_schema` so the model knows what to extract.
 - Tables are the hardest part. Financial statements and medical forms have complex tabular data.
-- The scorer is schema-agnostic — it compares your output field-by-field against gold.
+- The scorer is schema-agnostic; it compares your output field-by-field against gold.

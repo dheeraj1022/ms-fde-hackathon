@@ -33,7 +33,7 @@ What judges look for in your orchestration code. Tier 2 doesn't affect the leade
 
 ## Tips
 
-- This is the most architecture-heavy task. The architecture *is* the differentiator.
+- This is the most architecture-heavy task.
 - Upfront planning is cheaper but iterative re-planning handles surprises better.
-- Parallelize independent tool calls when you can — it makes a real latency difference.
+- Parallelize independent tool calls when you can; it makes a real latency difference.
 - Consider a two-model strategy: capable model for planning, cheaper model for straightforward tool calls.

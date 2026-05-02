@@ -11,12 +11,12 @@
 
 > The videos cover priority intuition, escalation rules, engineering
 > signals judges look for, and how scoring works. This README is the
-> mechanical contract — endpoints, schemas, and the exact label strings
+> mechanical contract: endpoints, schemas, and the exact label strings
 > you must emit.
 
 Take an incoming mission signal and return a triage decision: what category, how urgent, which team, what's missing, what to do next.
 
-The signals are messy — vague reports, contradictory subjects, noise from automated systems, and the occasional prompt injection. Your system needs to read through the noise and make a routing call.
+The signals are messy: vague reports, contradictory subjects, noise from automated systems, and the occasional prompt injection. Your system needs to read through the noise and make a routing call.
 
 Read the background:
 
@@ -24,7 +24,7 @@ Read the background:
 - [routing_guide.md](routing_guide.md) — gray areas and ambiguity disclosure
 - [engineering_review.md](engineering_review.md) — pointer to V2/V3
 
-## Request Contract
+## Request contract
 
 Input fields:
 
@@ -38,7 +38,7 @@ Input fields:
 
 See [../../../py/data/task1/input_schema.json](../../../py/data/task1/input_schema.json) for the formal schema.
 
-## Response Contract
+## Response contract
 
 Required output fields:
 
@@ -53,7 +53,7 @@ Required output fields:
 
 See [../../../py/data/task1/output_schema.json](../../../py/data/task1/output_schema.json) for the formal schema.
 
-### Valid Labels
+### Valid labels
 
 Categories:
 

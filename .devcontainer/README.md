@@ -20,7 +20,7 @@ gh cs create --repo microsoft/be-an-fde-for-a-day
 2. Clone the repo locally
 3. Open the repo in VS Code → it will prompt you to reopen in a container
 
-## Using Your Own Local Environment
+## Using your own local environment
 
 If you prefer not to use a devcontainer, install the following:
 
@@ -36,6 +36,6 @@ cd ts && pnpm install
 uvx pre-commit install
 ```
 
-## Port Forwarding
+## Port forwarding
 
 When working in a cloud-hosted environment, `localhost` ports are automatically forwarded so that you can view them in the browser.

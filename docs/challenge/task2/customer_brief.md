@@ -1,10 +1,10 @@
 # Task 2 — Customer Brief
 
-The customer has document images — receipts, invoices, financial statements, medical forms — that are only useful once they're structured data. Manual extraction is slow, inconsistent, and doesn't scale.
+The customer has document images (receipts, invoices, financial statements, medical forms) that are only useful once they're structured data. Manual extraction is slow, inconsistent, and doesn't scale.
 
-They want an API: send an image and a target schema, get back stable JSON. The fields vary per document type, but the quality bar is the same — accurate extraction with consistent formatting.
+They want an API: send an image and a target schema, get back stable JSON. The fields vary per document type, but the quality bar is the same: accurate extraction with consistent formatting.
 
-## What Breaks Trust
+## What breaks trust
 
 - Missing fields that are clearly visible in the image
 - Hallucinated values the document doesn't support
