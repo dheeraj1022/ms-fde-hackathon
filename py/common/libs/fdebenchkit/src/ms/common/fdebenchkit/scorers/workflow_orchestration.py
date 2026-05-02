@@ -188,6 +188,49 @@ def score_goal_completion(
     return 0.8 * step_coverage + 0.2 * final_match
 
 
+def _alt_tool_map(gold: dict[str, Any]) -> dict[str, dict[str, float]]:
+    """Build {alt_tool_name: {primary_tool_name: credit_factor}} from gold.
+
+    Reads ``gold["acceptable_alternatives"]``, a mapping of step id to either
+    a list of alt tool names (each gets the default 0.9 credit factor) or a
+    dict {alt_tool_name: credit_factor}. Step ids are coerced to strings so
+    callers can use either ints or strings.
+
+    Used by ``score_tool_selection`` to give partial credit when a candidate
+    picked a generic-but-plausible tool over the spec'd specific one.
+    """
+    raw = gold.get("acceptable_alternatives") or {}
+    if not isinstance(raw, dict):
+        return {}
+    steps = gold.get("steps", []) or []
+    primary_by_step: dict[str, str] = {}
+    for step in steps:
+        step_id = step.get("step")
+        tool = step.get("tool")
+        if step_id is None or not tool:
+            continue
+        primary_by_step[str(step_id)] = _normalize(tool)
+
+    alt_map: dict[str, dict[str, float]] = {}
+    for step_id, alts in raw.items():
+        primary = primary_by_step.get(str(step_id))
+        if not primary:
+            continue
+        if isinstance(alts, dict):
+            entries = [(name, float(cf)) for name, cf in alts.items()]
+        elif isinstance(alts, list):
+            entries = [(name, 0.9) for name in alts]
+        else:
+            continue
+        for alt_name, credit_factor in entries:
+            normalized = _normalize(alt_name)
+            if not normalized or normalized == primary:
+                continue
+            credit_factor = max(0.0, min(1.0, credit_factor))
+            alt_map.setdefault(normalized, {})[primary] = credit_factor
+    return alt_map
+
+
 def score_tool_selection(
     candidate_steps: list[dict[str, Any]],
     gold: dict[str, Any],
@@ -196,6 +239,11 @@ def score_tool_selection(
 
     Measures: did the candidate call the right tools (ignoring order/params)?
     Penalizes both missing tools (recall) and unnecessary tools (precision).
+
+    Honors ``gold["acceptable_alternatives"]`` (per-step alt tool list / map):
+    when the candidate substitutes an alt tool for a missing primary, the
+    substitution is credited at the alt's ``credit_factor`` (default 0.9)
+    instead of being treated as a wrong tool.
     """
     if not candidate_steps:
         return 0.0
@@ -204,17 +252,46 @@ def score_tool_selection(
     if not gold_tools:
         return 1.0 if not candidate_steps else 0.0
 
-    gold_counts = Counter(s["tool"] for s in gold.get("steps", []))
-    candidate_counts = Counter(s.get("tool", "") for s in candidate_steps)
+    gold_counts = Counter(_normalize(s["tool"]) for s in gold.get("steps", []))
+    candidate_counts = Counter(_normalize(s.get("tool", "")) for s in candidate_steps)
 
-    # Per-tool min overlap
-    all_tools = set(gold_counts.keys()) | set(candidate_counts.keys())
-    tp = sum(min(gold_counts.get(t, 0), candidate_counts.get(t, 0)) for t in all_tools)
+    # Per-tool min overlap (full credit for exact matches)
+    all_tools = set(gold_counts) | set(candidate_counts)
+    hard_tp = sum(min(gold_counts.get(t, 0), candidate_counts.get(t, 0)) for t in all_tools)
+
+    # Substitution credit for acceptable alternatives.
+    substituted_tp = 0.0
+    alt_map = _alt_tool_map(gold)
+    if alt_map:
+        primary_deficits = {
+            primary: gold_counts.get(primary, 0) - candidate_counts.get(primary, 0)
+            for primary in {p for primaries in alt_map.values() for p in primaries}
+        }
+        for alt_tool, primary_map in alt_map.items():
+            available = candidate_counts.get(alt_tool, 0)
+            if available <= 0:
+                continue
+            # Iterate primaries by descending credit_factor so the best
+            # substitution wins when a single alt could satisfy multiple primaries.
+            for primary, credit_factor in sorted(
+                primary_map.items(), key=lambda item: item[1], reverse=True
+            ):
+                deficit = primary_deficits.get(primary, 0)
+                if deficit <= 0:
+                    continue
+                substitutions = min(deficit, available)
+                substituted_tp += substitutions * credit_factor
+                primary_deficits[primary] = deficit - substitutions
+                available -= substitutions
+                if available <= 0:
+                    break
+
+    tp_with_subs = hard_tp + substituted_tp
     gold_total = sum(gold_counts.values())
     candidate_total = sum(candidate_counts.values())
 
-    precision = tp / candidate_total if candidate_total > 0 else 0.0
-    recall = tp / gold_total if gold_total > 0 else 0.0
+    precision = tp_with_subs / candidate_total if candidate_total > 0 else 0.0
+    recall = tp_with_subs / gold_total if gold_total > 0 else 0.0
 
     if precision + recall == 0:
         return 0.0
@@ -361,6 +438,21 @@ def score_ordering_correctness(
                 break
 
         dep_checks.append(1.0 if all_satisfied else 0.0)
+
+    # Gold-record-level ``ordered_dependencies``: explicit list of
+    # (earlier_step_id, later_step_id) pairs that MUST hold even when the
+    # per-step ``depends_on`` heuristic in ``_hard_dependencies`` would have
+    # softened or skipped the constraint. Each pair contributes a single
+    # 0.0/1.0 to the dep_checks average.
+    for pair in gold.get("ordered_dependencies") or []:
+        if not isinstance(pair, (list, tuple)) or len(pair) < 2:
+            continue
+        earlier_pos = gold_step_to_position.get(pair[0])
+        later_pos = gold_step_to_position.get(pair[1])
+        if earlier_pos is None or later_pos is None:
+            dep_checks.append(0.0)
+            continue
+        dep_checks.append(1.0 if earlier_pos < later_pos else 0.0)
 
     return sum(dep_checks) / len(dep_checks) if dep_checks else 1.0
 
@@ -609,10 +701,8 @@ def _score_template_goal_completion(
                 _count_matching_params(
                     candidate_steps,
                     "email_send",
-                    lambda params: (
-                        _normalize(params.get("template", "")) == "renewal_quote"
-                        and _normalize(str(params.get("variables", {}).get("plan", ""))) == expected_plan
-                    ),
+                    lambda params: _normalize(params.get("template", "")) == "renewal_quote"
+                    and _normalize(str(params.get("variables", {}).get("plan", ""))) == expected_plan,
                 )
                 == 1,
                 _count_matching_params(
@@ -732,19 +822,15 @@ def _score_template_constraints(
                 _count_matching_params(
                     candidate_steps,
                     "notification_send",
-                    lambda params: (
-                        _normalize(params.get("user_id", "")) == "oncall_engineer"
-                        and _normalize(params.get("channel", "")) == "sms"
-                    ),
+                    lambda params: _normalize(params.get("user_id", "")) == "oncall_engineer"
+                    and _normalize(params.get("channel", "")) == "sms",
                 )
                 == 1,
                 _count_matching_params(
                     candidate_steps,
                     "notification_send",
-                    lambda params: (
-                        _normalize(params.get("user_id", "")) == "engineering_manager"
-                        and _normalize(params.get("channel", "")) == "slack"
-                    ),
+                    lambda params: _normalize(params.get("user_id", "")) == "engineering_manager"
+                    and _normalize(params.get("channel", "")) == "slack",
                 )
                 == (1 if escalated else 0),
             ]

@@ -9,9 +9,11 @@ from typing import Any
 
 import httpx
 
+from ms.common.models.base import FrozenBaseModel
+from ms.common.fdebenchkit import TaskResolutionResult
+from ms.common.fdebenchkit import validate_resolution_result
 from ms.common.fdebenchkit.caller import CallResults
 from ms.common.fdebenchkit.caller import call_endpoint
-from ms.common.fdebenchkit.models import TaskResolutionResult
 from ms.common.fdebenchkit.probes import run_probes
 from ms.common.fdebenchkit.registry import TaskRun
 from ms.common.fdebenchkit.registry import get_task_definition
@@ -19,13 +21,16 @@ from ms.common.fdebenchkit.weights import EFFICIENCY_WEIGHT_COST as WEIGHT_COST
 from ms.common.fdebenchkit.weights import EFFICIENCY_WEIGHT_LATENCY as WEIGHT_LATENCY
 from ms.common.fdebenchkit.weights import LATENCY_BEST_MS
 from ms.common.fdebenchkit.weights import LATENCY_WORST_MS
+from ms.common.fdebenchkit.weights import LATENCY_P50_BEST_MS
+from ms.common.fdebenchkit.weights import LATENCY_P50_WORST_MS
+from ms.common.fdebenchkit.weights import LATENCY_P95_BEST_MS
+from ms.common.fdebenchkit.weights import LATENCY_P95_WORST_MS
+from ms.common.fdebenchkit.weights import compute_latency_score
 from ms.common.fdebenchkit.weights import ROBUSTNESS_WEIGHT_ADVERSARIAL as WEIGHT_ADVERSARIAL
 from ms.common.fdebenchkit.weights import ROBUSTNESS_WEIGHT_API_RESILIENCE as WEIGHT_API_RESILIENCE
 from ms.common.fdebenchkit.weights import TIER1_WEIGHT_EFFICIENCY as WEIGHT_EFFICIENCY
 from ms.common.fdebenchkit.weights import TIER1_WEIGHT_RESOLUTION as WEIGHT_RESOLUTION
 from ms.common.fdebenchkit.weights import TIER1_WEIGHT_ROBUSTNESS as WEIGHT_ROBUSTNESS
-from ms.common.fdebenchkit.weights import validate_resolution_result
-from ms.common.models.base import FrozenBaseModel
 
 try:
     from opentelemetry import trace as _otel_trace
@@ -185,7 +190,10 @@ class TaskScoreSummary(FrozenBaseModel):
 
     # ── Per-task efficiency (E_k) ─────────────────────────────────
     efficiency_score: float = 0.0  # 0–100
-    latency_score: float = 0.0  # 0–1 (normalized P95)
+    latency_score: float = 0.0  # 0–1 (blend of P50 and P95 sub-scores)
+    latency_p50_score: float = 0.0  # 0–1 (normalized P50)
+    latency_p95_score: float = 0.0  # 0–1 (normalized P95)
+    latency_p50_ms: float = 0.0  # raw milliseconds
     latency_p95_ms: float = 0.0  # raw milliseconds
     cost_score: float = 0.0  # 0–1 (model tier)
     primary_model: str = ""
@@ -214,6 +222,9 @@ class TaskScoreSummary(FrozenBaseModel):
             "items_errored": self.items_errored,
             "efficiency_score": self.efficiency_score,
             "latency_score": self.latency_score,
+            "latency_p50_score": self.latency_p50_score,
+            "latency_p95_score": self.latency_p95_score,
+            "latency_p50_ms": round(self.latency_p50_ms, 1),
             "latency_p95_ms": round(self.latency_p95_ms, 1),
             "cost_score": self.cost_score,
             "primary_model": self.primary_model,
@@ -334,7 +345,7 @@ def _normalize_model_name(name: str) -> str:
     - Model catalog names: gpt-4.1-mini, gpt-4.1
     - Versioned names: gpt-4.1-mini-2025-04-14, gpt-4-1-mini-2025-04-14
     """
-    import re  # noqa: PLC0415
+    import re  # noqa: PLC0415 # stdlib re used only in this helper
 
     s = name.strip().lower()
     # Strip date suffixes like -2025-04-14
@@ -364,10 +375,7 @@ def _lookup_model_tier_score(model_name: str) -> float:
             return _MODEL_TIER_SCORES[prefix]
 
     logger.warning(
-        "unknown_model_tier: model=%s normalized=%s using_fallback=%.1f",
-        model_name,
-        normalized,
-        _FALLBACK_TIER_SCORE,
+        "unknown_model_tier: model=%s normalized=%s using_fallback=%.1f", model_name, normalized, _FALLBACK_TIER_SCORE
     )
     return _FALLBACK_TIER_SCORE
 
@@ -385,20 +393,38 @@ def _compute_model_tier_cost_score(call_results: CallResults) -> tuple[float, st
     return score, primary_model
 
 
-def _normalize_latency(p95_ms: float, best_ms: float = _LATENCY_BEST_MS, worst_ms: float = _LATENCY_WORST_MS) -> float:
-    """Normalize P95 latency to 0-1 score.
+def _normalize_latency(
+    p95_ms: float,
+    *,
+    p50_ms: float | None = None,
+    p50_best_ms: float = LATENCY_P50_BEST_MS,
+    p50_worst_ms: float = LATENCY_P50_WORST_MS,
+    p95_best_ms: float = LATENCY_P95_BEST_MS,
+    p95_worst_ms: float = LATENCY_P95_WORST_MS,
+    # Legacy aliases — some callers still pass ``best_ms`` / ``worst_ms``
+    # from older code paths; treat them as P95 thresholds.
+    best_ms: float | None = None,
+    worst_ms: float | None = None,
+) -> tuple[float, float, float]:
+    """Normalize per-task latency to a blended 0–1 score.
 
-    Uses per-task thresholds when provided, falling back to global defaults.
-    Each task type has different expected latency profiles:
-    - Text classification (triage): fast, best=500ms worst=5000ms
-    - Vision/OCR (extract): slow, best=2000ms worst=20000ms
-    - Multi-step orchestration: medium, best=1000ms worst=10000ms
+    Returns ``(latency_score, p50_score, p95_score)``. Each component
+    is clamped to ``[0, 1]``. The blend is 50/50 — a fast tail with a
+    slow median earns the same as a slow tail with a fast median.
     """
-    if p95_ms <= best_ms:
-        return 1.0
-    if p95_ms >= worst_ms:
-        return 0.0
-    return 1.0 - (p95_ms - best_ms) / (worst_ms - best_ms)
+    if best_ms is not None:
+        p95_best_ms = best_ms
+    if worst_ms is not None:
+        p95_worst_ms = worst_ms
+    p50 = p50_ms if p50_ms is not None else p95_ms
+    return compute_latency_score(
+        p50,
+        p95_ms,
+        p50_best_ms=p50_best_ms,
+        p50_worst_ms=p50_worst_ms,
+        p95_best_ms=p95_best_ms,
+        p95_worst_ms=p95_worst_ms,
+    )
 
 
 def _infer_mock_reset_url(task_runs: list[TaskRun]) -> set[str]:
@@ -766,10 +792,13 @@ async def run_scoring(
         all_errors.extend(task_errors)
 
         # ── Phase 4: Per-task efficiency E_k ─────────────────────
-        task_latency_score = _normalize_latency(
+        task_latency_score, task_p50_score, task_p95_score = _normalize_latency(
             call_results.latency_p95_ms,
-            best_ms=task_run.definition.latency_best_ms,
-            worst_ms=task_run.definition.latency_worst_ms,
+            p50_ms=call_results.latency_p50_ms,
+            p50_best_ms=task_run.definition.latency_p50_best_ms,
+            p50_worst_ms=task_run.definition.latency_p50_worst_ms,
+            p95_best_ms=task_run.definition.latency_p95_best_ms,
+            p95_worst_ms=task_run.definition.latency_p95_worst_ms,
         )
         task_cost_score, task_primary_model = _compute_model_tier_cost_score(call_results)
         task_efficiency = round(
@@ -805,6 +834,9 @@ async def run_scoring(
             items_errored=base_summary.items_errored,
             efficiency_score=task_efficiency,
             latency_score=round(task_latency_score, 4),
+            latency_p50_score=round(task_p50_score, 4),
+            latency_p95_score=round(task_p95_score, 4),
+            latency_p50_ms=round(call_results.latency_p50_ms, 1),
             latency_p95_ms=round(call_results.latency_p95_ms, 1),
             cost_score=round(task_cost_score, 4),
             primary_model=task_primary_model,
@@ -867,7 +899,7 @@ async def run_scoring(
     # Primary model: most common across all tasks
     model_names = [t.primary_model for t in task_summaries if t.primary_model]
     if model_names:
-        from collections import Counter  # noqa: PLC0415
+        from collections import Counter  # noqa: PLC0415 # stdlib Counter scoped to this aggregation helper
 
         primary_model = Counter(model_names).most_common(1)[0][0]
     else:

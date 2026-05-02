@@ -28,13 +28,37 @@ class TaskDefinition:
     response_required_keys: frozenset[str]
     dimension_weights: dict[str, float]
     scorer: ScorerFn
-    # Per-task latency normalization thresholds (P95 ms).
-    # Different tasks have different expected latency profiles:
-    # - Text classification (triage): fast, ~500ms-3s
-    # - Vision/OCR (extract): slow, ~2s-20s
-    # - Multi-step orchestration: medium, ~1s-8s
-    latency_best_ms: float = 500.0
-    latency_worst_ms: float = 5000.0
+    # Per-task latency normalization thresholds.
+    #
+    # Latency scoring is a 50/50 blend of normalized P50 and P95 against
+    # the four per-task thresholds below. Calibration rationale:
+    #   * P50 best  = budget-derived target for a well-engineered solution
+    #     (one LLM call, mini model, same region, warm pool — see
+    #     ``learnings/l1improvements.md`` §2.2.3).
+    #   * P50 worst = 4 × P50 best (replaces the prior 10× ramp that put
+    #     realistic submissions on the flat tail).
+    #   * P95 best  = 3 × P50 best (Azure OpenAI empirical tail/median
+    #     ratio).
+    #   * P95 worst ≈ cohort-1 P75 of observed P95 (so the slowest
+    #     quartile of real submissions sits in the discriminating part
+    #     of the ramp). Source: ``analysis/out/tasks_anon.csv``
+    #     (snapshot 2026-04-26).
+    #
+    # Defaults below match Task 1 (Triage) — sub-classes override them.
+    latency_p50_best_ms: float = 400.0
+    latency_p50_worst_ms: float = 1600.0
+    latency_p95_best_ms: float = 1200.0
+    latency_p95_worst_ms: float = 4500.0
+
+    @property
+    def latency_best_ms(self) -> float:  # pragma: no cover - back-compat shim
+        """Deprecated: returns ``latency_p95_best_ms`` for legacy callers."""
+        return self.latency_p95_best_ms
+
+    @property
+    def latency_worst_ms(self) -> float:  # pragma: no cover - back-compat shim
+        """Deprecated: returns ``latency_p95_worst_ms`` for legacy callers."""
+        return self.latency_p95_worst_ms
 
 
 @dataclass(frozen=True)
@@ -81,6 +105,15 @@ TASK_DEFINITIONS: dict[str, TaskDefinition] = {
             "escalation": ticket_triage_scoring.WEIGHT_ESCALATION,
         },
         scorer=ticket_triage_scoring.score_submission,
+        # Calibrated from cohort-1 empirical distribution (n = 22 successful
+        # runs, ``analysis/out/tasks_anon.csv``):
+        #   min P95 = 1 458 ms  → P95 best 1 500 (fastest known earns ~1.0)
+        #   P75 P95 = 4 208 ms  → P95 worst 4 200 (slowest quartile in ramp)
+        #   P50 best/worst = P95 best / 3, ×4 (AOAI tail/median ratio).
+        latency_p50_best_ms=500.0,
+        latency_p50_worst_ms=2000.0,
+        latency_p95_best_ms=1500.0,
+        latency_p95_worst_ms=4200.0,
     ),
     "document_extraction": TaskDefinition(
         task_id="document_extraction",
@@ -91,9 +124,18 @@ TASK_DEFINITIONS: dict[str, TaskDefinition] = {
         response_required_keys=frozenset({"document_id"}),
         dimension_weights=scoring_document_extraction.DIMENSION_WEIGHTS,
         scorer=scoring_document_extraction.score_submission,
-        # Vision/OCR is inherently slower — calibrate thresholds accordingly
-        latency_best_ms=2000.0,
-        latency_worst_ms=20000.0,
+        # Calibrated from cohort-1 empirical distribution (n = 20 successful
+        # runs, ``analysis/out/tasks_anon.csv``):
+        #   min P95 = 7 107 ms  → P95 best 7 100 (fastest known earns ~1.0)
+        #   P75 P95 = 18 900 ms → P95 worst 19 000 (slowest quartile in ramp).
+        # P95 best was previously the budget number (5 500 ms), but no
+        # cohort-1 submission landed below 7 107 ms — grounding in measured
+        # data is fairer than aspirational vision-mini budget math.
+        # Revisit after first cohort-2 calibration run (D-7).
+        latency_p50_best_ms=2400.0,
+        latency_p50_worst_ms=7200.0,
+        latency_p95_best_ms=7100.0,
+        latency_p95_worst_ms=19000.0,
     ),
     "workflow_orchestration": TaskDefinition(
         task_id="workflow_orchestration",
@@ -104,9 +146,21 @@ TASK_DEFINITIONS: dict[str, TaskDefinition] = {
         response_required_keys=frozenset({"task_id", "status", "steps_executed"}),
         dimension_weights=scoring_workflow_orchestration.DIMENSION_WEIGHTS,
         scorer=scoring_workflow_orchestration.score_submission,
-        # Multi-step LLM + tool calls — medium latency expected
-        latency_best_ms=1000.0,
-        latency_worst_ms=10000.0,
+        # Calibrated from cohort-1 empirical distribution (n = 20 successful
+        # runs, ``analysis/out/tasks_anon.csv``). The orchestrate distribution
+        # is bimodal: 4 of 6 participants hit ≤ 1 300 ms P95 in their best
+        # run (parallel tool calls / efficient orchestration), 2 stayed
+        # > 5 600 ms (sequential-only). Anchors:
+        #   median P95 of fastest-per-participant = 1 200 ms
+        #     → P95 best 1 500 (a slight cushion above the median
+        #       fastest; rewards the parallel-tool pattern that 4 of 6
+        #       demonstrated, with margin for cohort-2 variance)
+        #   P75 P95 = 7 960 ms → P95 worst 8 000 (sequential-only sits
+        #     in the discriminating part of the ramp instead of clamping).
+        latency_p50_best_ms=500.0,
+        latency_p50_worst_ms=2700.0,
+        latency_p95_best_ms=1500.0,
+        latency_p95_worst_ms=8000.0,
     ),
 }
 
