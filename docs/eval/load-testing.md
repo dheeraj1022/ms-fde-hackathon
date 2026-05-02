@@ -61,21 +61,28 @@ hey -z 120s -q 5 -c 5 -m POST \
   http://localhost:8000/triage
 ```
 
-### Task 2 (Extract) — Image-Path Payload
+### Task 2 (Extract) — Inlined-Base64 Payload
 
-Public-eval extract requests reference local image files via `content_format: "image_path"`. The request bodies are tiny (~1 KB JSON), but your endpoint will load the actual PNG (100 KB – 11 MB) from disk before invoking the vision model. Test with a real payload from the eval data:
+Your `/extract` always receives `content_format: "image_base64"`. The eval
+harness inlines images from `py/data/task2/images/` as base64 before POSTing,
+so payloads are larger (~500 KB–15 MB per request, dominated by the PNG
+size) than the on-disk JSON would suggest. Build a real payload from the
+eval data with the same inlining the harness performs:
 
 ```bash
-# Extract the first eval item as a payload file
+# Inline the first eval item as the wire-format payload
 cd py
 python3 -c "
-import json
-with open('data/task2/public_eval_50.json') as f:
-    items = json.load(f)
+import base64, json, pathlib
+task2 = pathlib.Path('data/task2')
+items = json.load((task2/'public_eval_50.json').open())
+item = dict(items[0])
+img = (task2/item['content']).read_bytes()
+item['content_format'] = 'image_base64'
+item['content'] = base64.b64encode(img).decode()
 with open('/tmp/extract_payload.json', 'w') as f:
-    json.dump(items[0], f)
-print(f'Payload size: {len(json.dumps(items[0]))//1024} KB')
-print(f'Image: {items[0][\"content\"]}')
+    json.dump(item, f)
+print(f'Payload size: {len(json.dumps(item))//1024} KB  ({len(img)//1024} KB raw image)')
 "
 
 # Serial baseline (extract is slow — vision model)
@@ -139,6 +146,19 @@ hey -n 20 -c 20 -m POST \
 cd py/apps/eval
 python run_eval.py --endpoint "$API_URL"
 ```
+
+> **Task 2 (Extract) image delivery.** Your `/extract` always receives
+> `content_format: "image_base64"`. The shipped public set on disk uses
+> `content_format: "image_path"` so the JSON file stays small (~80 KB),
+> but `run_eval.py` inlines each PNG from `py/data/task2/images/` as
+> base64 before POSTing — your endpoint never sees the path form. The
+> platform's hidden-eval scoring does the same translation server-side
+> (downloading from blob storage and applying per-submission anti-
+> reconstruction perturbation, cohort-2 WS1.1) so the wire format is
+> uniform across local-dev and production. Override the harness with
+> `--inline-t2-images=no` only when debugging the on-disk payload
+> shape; the reference solution drops anything other than
+> `image_base64`.
 
 ## What to look for
 

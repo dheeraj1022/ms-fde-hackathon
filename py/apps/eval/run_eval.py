@@ -163,6 +163,45 @@ def _rewrite_task3_urls(items: list[dict]) -> list[dict]:
     return rewritten
 
 
+def _inline_t2_images(items: list[dict], dataset_root: Path) -> tuple[list[dict], int, int]:
+    """Convert Task 2 ``image_path`` items to ``image_base64`` in-place.
+
+    The shipped public set uses ``content_format = "image_path"`` so a
+    candidate's *local* solution can read PNGs straight from disk
+    (saves ~71MB of base64 in the JSON). When scoring against a
+    remote deployment the candidate's container has no access to the
+    candidate's local filesystem, so we replace the relative path with
+    the actual image bytes inlined as base64.
+
+    Returns ``(rewritten_items, n_inlined, n_skipped)``. Items that
+    are not ``image_path`` (e.g. legacy ``image_base64``,
+    ``blob_image``) pass through unchanged.
+    """
+    import base64  # noqa: PLC0415 # stdlib, scoped to this transform
+
+    rewritten: list[dict] = []
+    n_inlined = 0
+    n_skipped = 0
+    for item in items:
+        if item.get("content_format") != "image_path":
+            rewritten.append(item)
+            n_skipped += 1
+            continue
+        rel = item.get("content") or ""
+        path = (dataset_root / rel).resolve()
+        if not path.is_file():
+            logger.warning("inline_skip: %s -> %s not found", item.get("document_id"), path)
+            rewritten.append(item)
+            n_skipped += 1
+            continue
+        new = dict(item)
+        new["content_format"] = "image_base64"
+        new["content"] = base64.b64encode(path.read_bytes()).decode("ascii")
+        rewritten.append(new)
+        n_inlined += 1
+    return rewritten, n_inlined, n_skipped
+
+
 def _load_dataset(path: Path, id_field: str) -> list[dict]:
     """Load a JSON array dataset."""
     if not path.exists():
@@ -181,8 +220,16 @@ def _build_task_runs(
     *,
     custom_input: Path | None = None,
     custom_gold: Path | None = None,
+    inline_t2_images: bool = False,
 ) -> list[TaskRun]:
-    """Build TaskRun objects for the requested tasks."""
+    """Build TaskRun objects for the requested tasks.
+
+    When ``inline_t2_images`` is True, Task 2 ``image_path`` items are
+    rewritten to ``image_base64`` (the bytes inlined). Use this when
+    scoring an endpoint that does NOT have access to the candidate's
+    local filesystem (i.e., any deployed endpoint). See
+    :func:`_inline_t2_images` for details.
+    """
     runs: list[TaskRun] = []
 
     for task_key in tasks:
@@ -196,6 +243,16 @@ def _build_task_runs(
             paths = _TASK_DATASETS[task_key]
             input_items = _load_dataset(paths["input"], definition.request_id_key)
             gold_items = _load_dataset(paths["gold"], definition.request_id_key)
+
+        # Task 2: optionally inline images for non-local endpoints.
+        if task_id == "document_extraction" and inline_t2_images:
+            dataset_root = _TASK_DATASETS[task_key]["input"].parent
+            input_items, n_inlined, n_skipped = _inline_t2_images(input_items, dataset_root)
+            logger.info(
+                "Task 2 image_path → image_base64: inlined=%d skipped=%d (remote endpoint)",
+                n_inlined,
+                n_skipped,
+            )
 
         # Task 3: rewrite tool endpoints to point at the local mock service
         if task_id == "workflow_orchestration":
@@ -314,6 +371,22 @@ def parse_args() -> argparse.Namespace:
         default=30.0,
         help="Per-request timeout in seconds (default: 30)",
     )
+    parser.add_argument(
+        "--inline-t2-images",
+        choices=("yes", "no"),
+        default="yes",
+        help=(
+            "Whether to inline Task 2 images as base64 in the request body. "
+            "Default 'yes' matches the production scoring contract: the "
+            "platform downloads each blob, applies per-submission anti-"
+            "reconstruction perturbation, then base64-inlines before "
+            "POSTing to the candidate's /extract. Setting 'no' sends the "
+            "raw 'image_path' record (only meaningful when scoring an "
+            "endpoint that has filesystem access to py/data/task2/images/, "
+            "which is no longer a supported contract for the reference "
+            "solution; kept for harness debugging only)."
+        ),
+    )
     return parser.parse_args()
 
 
@@ -350,10 +423,29 @@ async def main() -> None:
     logger.info("Endpoint: %s", args.endpoint)
     logger.info("Tasks: %s", ", ".join(task_keys))
 
+    # Pattern A (cohort-2 single-format contract): the candidate's
+    # /extract endpoint receives a uniform ``image_base64`` payload
+    # regardless of who is sending it. The platform-side scorer
+    # downloads each blob, applies per-submission anti-reconstruction
+    # perturbation, then base64-inlines before POSTing. The local
+    # harness mirrors that by inlining the disk PNGs here. Setting
+    # ``--inline-t2-images=no`` keeps the raw ``image_path`` record
+    # (kept only for debugging the participant repo's data shape).
+    inline_t2 = args.inline_t2_images == "yes"
+    if "extract" in task_keys:
+        if inline_t2:
+            logger.info("Task 2 mode: image_base64 (inlining ~50 PNGs from py/data/task2/images/)")
+        else:
+            logger.warning(
+                "Task 2 mode: image_path (raw record). Reference solution drops anything "
+                "other than image_base64; use --inline-t2-images=yes for real scoring."
+            )
+
     task_runs = _build_task_runs(
         task_keys,
         custom_input=args.dataset,
         custom_gold=args.gold,
+        inline_t2_images=inline_t2,
     )
 
     try:

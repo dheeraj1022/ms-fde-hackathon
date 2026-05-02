@@ -12,22 +12,27 @@ Read the background:
 
 ## Request contract
 
-Input fields:
+Your `/extract` endpoint receives a single uniform payload format:
 
 - `document_id`
-- `content` — relative path to the document image file (e.g., `images/DOC-OCR-0869.png`), resolved against the directory containing `public_eval_50.json`
-- `content_format` — `"image_path"` (the hidden eval may use other formats)
+- `content_format` — always `"image_base64"`
+- `content` — base64-encoded PNG bytes of the document image
 - `json_schema` — JSON schema describing the expected output structure (each document has a different schema)
 
-The public-eval images live next to the input file at [`py/data/task2/images/`](../../../py/data/task2/images/) and are loaded directly from disk:
+Your code only needs to base64-decode `content` and pass the bytes to a vision-capable model.
+
+The shipped public set on disk uses `content_format: "image_path"` so the JSON file stays small (~80 KB) — the local eval harness (`py/apps/eval/run_eval.py`) reads each PNG from `py/data/task2/images/` and inlines it as base64 before POSTing to your endpoint, so your handler never sees the `image_path` form. Production scoring does the same: the platform downloads each image from blob storage, applies per-submission anti-reconstruction perturbation (cohort-2 WS1.1), then base64-inlines before POSTing. Either way, your endpoint receives `image_base64`.
+
+If you want to inspect a record manually, the disk layout is:
 
 ```python
 from pathlib import Path
-import json
+import json, base64
 
 task2_dir = Path("py/data/task2")
 records = json.loads((task2_dir / "public_eval_50.json").read_text())
 image_bytes = (task2_dir / records[0]["content"]).read_bytes()
+b64 = base64.b64encode(image_bytes).decode()  # <- this is what your /extract receives
 ```
 
 See [../../../py/data/task2/input_schema.json](../../../py/data/task2/input_schema.json) for the formal schema.

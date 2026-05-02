@@ -94,7 +94,7 @@ If you use the local runner at `py/apps/eval/run_eval.py` to gather your numbers
 
 ### Task 2: Document Extraction
 
-- [ ] Handles `image_path` content format on the public eval; check `content_format` and resolve `content` against the request's data dir
+- [ ] Receives `content_format: "image_base64"` and base64-decodes `content` into PNG bytes (the local harness inlines from `py/data/task2/images/`; the platform inlines from blob storage with anti-reconstruction perturbation; your code sees the same payload shape both ways)
 - [ ] Reads `json_schema` from the request and returns matching structured JSON
 - [ ] Response includes `document_id` plus all fields specified by the document's schema
 - [ ] Nested objects and arrays properly structured (tables, lists, sub-objects)
