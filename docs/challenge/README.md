@@ -134,6 +134,29 @@ Your service needs to handle concurrent requests, validate inputs, and return st
 
 **Eval items are shuffled per submission.** The platform reorders inputs deterministically per submission (keyed off your submission id). Join your responses on `request_id_key`, not on position. Don't rely on stable input order across submissions or across retries of the same submission. See [../eval/fdebench.md — Platform behaviour you should know](../eval/fdebench.md#platform-behaviour-you-should-know) for the full list.
 
+### Reliability is your responsibility
+
+Your endpoint owns the reliability of every dependency it calls (LLM API, database, vector store, internal tools). The platform-side caller does retry — twice, on `429` or `5xx`, honoring `Retry-After` — but those retries are a courtesy, not a safety net. After they exhaust, the item counts towards `items_errored` *and* contributes 0.0 to every dimension of that record. There is no scoring distinction between "I got a 500 from upstream" and "I returned the wrong answer".
+
+Concretely:
+
+| If your service does this | The platform records |
+|---|---|
+| Returns 200 with a complete answer | Counted, scored on accuracy |
+| Returns 200 with garbage / empty body | Counted as scored, 0.0 dimensions |
+| Returns 429 / 5xx then 200 within 2 retries | Counted, scored on accuracy (using last attempt's latency) |
+| Returns 429 / 5xx for all 3 attempts | Counted as `errored`, 0.0 dimensions |
+| Times out (no response in 60 s) | Counted as `errored`, 0.0 dimensions |
+
+What this means for your design:
+
+- **Wrap your LLM client in a retry loop that honors `Retry-After`.** The OpenAI / Anthropic SDKs do *not* do this by default for AOAI throttling. A 50-item Task 2 batch can hit 429 several times during a single scoring run.
+- **Set per-call timeouts shorter than the platform's 60 s.** Otherwise your retry budget collapses to one attempt before the platform gives up.
+- **Use circuit breakers on slow upstreams.** If your model deployment goes dark, fail fast with 503 instead of holding the connection — this lets the platform circuit-breaker abort cleanly and saves the rest of the batch.
+- **Bound concurrency to your model TPM/RPM quota.** A burst of 25 parallel requests against a 60K-TPM deployment will throttle you instantly.
+
+The local eval harness at `py/apps/eval/run_eval.py` uses the same caller as the platform, so a clean local run is a useful proxy for production behavior.
+
 ### Tier 2 engineering review
 
 Judges read the whole repo across four dimensions:

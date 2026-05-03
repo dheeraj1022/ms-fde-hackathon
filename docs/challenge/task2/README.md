@@ -80,3 +80,4 @@ Every document has a different schema, so you can't hardcode field names. Receip
 - Use a vision model (the input is an image, not text).
 - Return `null` for fields you can't extract. Don't hallucinate.
 - Tables are common. Financial data, medical forms, and invoices all have tabular content.
+- **Vision calls hit AOAI 429s under sustained load.** A 500-item hidden eval batch is more than enough to trip throttling on a fresh deployment. Wrap your AOAI client in a retry loop that honors `Retry-After` (the OpenAI SDK does *not* do this by default), and keep your per-attempt timeout short enough that two retries fit inside the platform's 60 s deadline. A 429 that the platform can't recover from counts as `documents_errored` *and* contributes zero to every dimension. See [../../eval/fdebench.md — Platform behaviour to know about](../../eval/fdebench.md#platform-behaviour-to-know-about) for the full retry contract.
