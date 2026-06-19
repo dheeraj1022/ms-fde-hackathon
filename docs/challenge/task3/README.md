@@ -138,8 +138,8 @@ uvicorn my_app:app --port 8000
 curl -s http://localhost:9090/health
 # → {"status":"ok","scenarios_loaded":"50"}
 
-curl -X POST http://localhost:9090/scenario/TASK-0015/crm_search -H "Content-Type: application/json" -d '{}'
-# → {"accounts": [{"account_id": "ACC-0015-0", ...}, ...]}
+curl -X POST http://localhost:9090/scenario/TASK-0024/crm_search -H "Content-Type: application/json" -d '{}'
+# → {"accounts": [{"account_id": "ACC-0024-0", "name": "Datum Corp Div-0"}, ...]}
 ```
 
 > **Calibration only: your local public T3 score will be near 100%.**
