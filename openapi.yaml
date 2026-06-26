@@ -1,0 +1,703 @@
+openapi: 3.0.3
+
+info:
+  title: Deep Space Station — FDEBench Solution API
+  version: 0.1.0
+  description: >
+    One HTTPS service that solves the three FDEBench customer problems for a deep-space
+    mission-operations station:
+
+
+    * **`POST /triage`** — first-pass classification & routing of noisy mission signals.
+
+    * **`POST /extract`** — structured data extraction from document images (vision).
+
+    * **`POST /orchestrate`** — multi-step workflow execution with real tool calls and constraints.
+
+
+    Plus **`GET /health`** for liveness.
+
+
+    Design principles baked into this contract:
+
+
+    * **Enum-only routable fields.** Category, priority, team, and missing-info are closed
+      vocabularies (see schemas) so downstream automation never has to parse prose.
+
+    * **Judgment, not keywords.** Loudness is not urgency; a calm, well-formatted signal from a
+      senior officer can still be a P1. See the `/triage` examples.
+
+    * **Hard escalations, no exceptions.** Hull breach, atmospheric compromise, and
+      restricted-zone/containment access always escalate, enforced server-side.
+
+    * **Observability on every response.** `X-Model-Name`, `X-Latency-Ms`, and `X-Request-Id`
+      headers are returned for cost/latency tracking.
+
+
+    This document is the **design source of truth**. The deployed FastAPI app is validated
+    against it.
+  license:
+    name: MIT
+    url: https://opensource.org/licenses/MIT
+  contact:
+    name: Dheeraj Dudipala
+
+servers:
+  - url: http://localhost:8000
+    description: Local development (uv run uvicorn main:app --port 8000)
+  - url: https://{host}
+    description: Deployed HTTPS endpoint (Azure Container Apps)
+    variables:
+      host:
+        default: your-app.azurecontainerapps.io
+
+tags:
+  - name: health
+    description: Liveness and readiness.
+  - name: triage
+    description: "Task 1 — Signal Triage. Resolution = 0.24 category + 0.24 priority + 0.24 routing + 0.17 missing_info + 0.11 escalation."
+  - name: extract
+    description: "Task 2 — Document Extraction. Resolution = 0.70 information_accuracy + 0.30 text_fidelity."
+  - name: orchestrate
+    description: "Task 3 — Workflow Orchestration. Resolution = 0.40 constraints + 0.20 goal + 0.20 ordering + 0.15 tool_selection + 0.05 params."
+
+paths:
+  /health:
+    get:
+      tags: [health]
+      operationId: getHealth
+      summary: Liveness probe
+      description: Returns `{"status":"ok"}` when the service is up. Used by the platform and the load balancer.
+      responses:
+        "200":
+          description: Service is healthy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+              example:
+                status: ok
+
+  /triage:
+    post:
+      tags: [triage]
+      operationId: postTriage
+      summary: First-pass triage of a single mission signal
+      description: >
+        Accepts one raw signal — from any channel, however messy — and returns a strict,
+        enum-constrained triage decision: category, priority (P1–P4), owning team, whether it
+        must escalate, what information is missing, and concrete next/remediation steps.
+
+
+        Internally: a deterministic safety floor runs first (hard escalations + priority floor),
+        then a single schema-constrained LLM call provides judgment, then a deterministic merge
+        guarantees a complete, valid response that can only ever *raise* severity, never lower it.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TriageRequest"
+            examples:
+              quiet_emergency:
+                summary: Quiet, polite signal that is actually a P1 (judgment over loudness)
+                value:
+                  ticket_id: SIG-4471
+                  subject: Minor pressure irregularity in Hab Ring C
+                  description: >
+                    Apologies for the bother. Noticing a slow pressure drop in Hab Ring C over the
+                    last hour — currently 0.7 atm and still trending down. Crew relocated as a
+                    precaution. Likely nothing, but flagging per protocol. — Lt. Cmdr. Okonkwo
+                  reporter:
+                    name: Adaeze Okonkwo
+                    email: a.okonkwo@station.deepspace
+                    department: Habitat Operations
+                  created_at: "2147-03-12T08:42:00Z"
+                  channel: bridge_terminal
+                  attachments: []
+              loud_routine:
+                summary: Loud "URGENT!!!" signal that is actually P4 noise
+                value:
+                  ticket_id: SIG-4490
+                  subject: "URGENT!!! Coffee machine down in mess hall — EMERGENCY"
+                  description: >
+                    This is a total emergency, the espresso machine on Deck 4 is completely broken
+                    and the whole shift is suffering. Need this fixed ASAP!!!
+                  reporter:
+                    name: Bram Visser
+                    email: b.visser@station.deepspace
+                    department: Galley
+                  created_at: "2147-03-12T09:05:00Z"
+                  channel: holodeck_comm
+                  attachments: []
+      responses:
+        "200":
+          description: Triage decision. Always a complete, schema-valid response, even under model degradation.
+          headers:
+            X-Model-Name:
+              $ref: "#/components/headers/X-Model-Name"
+            X-Latency-Ms:
+              $ref: "#/components/headers/X-Latency-Ms"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TriageResponse"
+              examples:
+                quiet_emergency:
+                  summary: Escalated P1 despite a calm tone
+                  value:
+                    ticket_id: SIG-4471
+                    category: Hull & Structural Systems
+                    priority: P1
+                    assigned_team: Spacecraft Systems Engineering
+                    needs_escalation: true
+                    missing_information: [anomaly_readout, affected_subsystem]
+                    next_best_action: >
+                      Treat as potential atmospheric compromise: dispatch structural team to Hab
+                      Ring C and confirm seal integrity immediately.
+                    remediation_steps:
+                      - Isolate Hab Ring C bulkheads and verify seal integrity
+                      - Pull life-support telemetry for the ring and confirm trend
+                      - Confirm all crew accounted for and relocated
+                loud_routine:
+                  summary: Demoted to P4, no escalation, routed to None
+                  value:
+                    ticket_id: SIG-4490
+                    category: Not a Mission Signal
+                    priority: P4
+                    assigned_team: "None"
+                    needs_escalation: false
+                    missing_information: []
+                    next_best_action: Log as a facilities request; not a mission-critical signal.
+                    remediation_steps:
+                      - Route to the galley maintenance queue
+                      - No mission action required
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /extract:
+    post:
+      tags: [extract]
+      operationId: postExtract
+      summary: Extract structured data from a document image
+      description: >
+        Accepts a base64-encoded document image plus a JSON Schema describing the exact fields
+        to return, and returns those fields populated from the image. The request-provided
+        `json_schema` is used directly as a strict structured-output schema for the vision model,
+        so the response shape always matches what was asked for.
+
+
+        Values are transcribed verbatim as printed (preserving formatting for text-fidelity
+        scoring); fields that are genuinely absent from the document are returned as `null`
+        rather than hallucinated.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ExtractRequest"
+            example:
+              document_id: DOC-2025-0142
+              content: iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==
+              content_format: image_base64
+              json_schema: '{"type":"object","properties":{"merchant":{"type":"string"},"date":{"type":"string"},"total":{"type":"number"},"items":{"type":"array","items":{"type":"object","properties":{"name":{"type":"string"},"price":{"type":"number"}}}}}}'
+      responses:
+        "200":
+          description: >
+            Extracted fields. Always includes `document_id`; all other keys mirror the request's
+            `json_schema`. Unknown fields are `null` (never hallucinated). Extra keys are ignored
+            by the scorer; missing keys score zero.
+          headers:
+            X-Model-Name:
+              $ref: "#/components/headers/X-Model-Name"
+            X-Latency-Ms:
+              $ref: "#/components/headers/X-Latency-Ms"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExtractResponse"
+              example:
+                document_id: DOC-2025-0142
+                merchant: Orbital Provisions Co.
+                date: "2147-03-09"
+                total: 48.75
+                items:
+                  - name: Recycled Water Filter
+                    price: 32.0
+                  - name: Ration Pack B
+                    price: 16.75
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+  /orchestrate:
+    post:
+      tags: [orchestrate]
+      operationId: postOrchestrate
+      summary: Execute a multi-step workflow with real tool calls
+      description: >
+        Given a goal, a set of callable tools (each with an HTTP `endpoint`), and a list of
+        constraints, the service plans and **actually executes** the workflow over HTTP — using
+        each tool's returned data to compute the next step's parameters — then reports exactly
+        what it did in `steps_executed`.
+
+
+        The scorer reads `steps_executed` and checks real outcomes (call counts and parameter
+        matches) against the gold plan, with constraint compliance weighted highest. Tool
+        failures are handled explicitly (recorded with `success: false`, retried or skipped) and
+        `status` reflects the true end-state.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OrchestrateRequest"
+            example:
+              task_id: TASK-0024
+              goal: >
+                Identify churn-risk accounts in the CRM and send each a retention email, but never
+                email accounts that have opted out of communications.
+              available_tools:
+                - name: crm_search
+                  description: Search CRM accounts by filter expression.
+                  endpoint: http://localhost:9090/scenario/TASK-0024/crm_search
+                  parameters:
+                    - name: filter
+                      type: string
+                      description: Search filter expression
+                      required: true
+                    - name: limit
+                      type: integer
+                      description: Maximum number of records to return
+                      required: false
+                - name: email_send
+                  description: Send an email to a single account.
+                  endpoint: http://localhost:9090/scenario/TASK-0024/email_send
+                  parameters:
+                    - name: account_id
+                      type: string
+                      description: Target account id
+                      required: true
+                    - name: template
+                      type: string
+                      description: Email template id
+                      required: true
+              constraints:
+                - Do not email accounts where opted_out is true.
+                - Send at most one email per account.
+              mock_service_url: http://localhost:9090/scenario/TASK-0024
+      responses:
+        "200":
+          description: Execution trace and outcome summary.
+          headers:
+            X-Model-Name:
+              $ref: "#/components/headers/X-Model-Name"
+            X-Latency-Ms:
+              $ref: "#/components/headers/X-Latency-Ms"
+            X-Request-Id:
+              $ref: "#/components/headers/X-Request-Id"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OrchestrateResponse"
+              example:
+                task_id: TASK-0024
+                status: completed
+                steps_executed:
+                  - step: 1
+                    tool: crm_search
+                    parameters:
+                      filter: churn_risk > 0.7
+                      limit: 100
+                    result_summary: 12 accounts returned, 3 flagged opted_out
+                    success: true
+                  - step: 2
+                    tool: email_send
+                    parameters:
+                      account_id: ACC-0024-0
+                      template: retention_v2
+                    result_summary: queued
+                    success: true
+                accounts_processed: 12
+                emails_sent: 9
+                emails_skipped: 3
+                skip_reasons:
+                  opted_out: 3
+                constraints_satisfied:
+                  - Do not email accounts where opted_out is true.
+                  - Send at most one email per account.
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          $ref: "#/components/responses/ValidationError"
+
+components:
+  headers:
+    X-Model-Name:
+      description: The model actually used to produce this response (read by the platform for cost scoring).
+      schema:
+        type: string
+        example: gpt-4.1-mini
+    X-Latency-Ms:
+      description: Server-side processing time for this request, in milliseconds.
+      schema:
+        type: integer
+        example: 742
+    X-Request-Id:
+      description: Correlation id for tracing this request in logs.
+      schema:
+        type: string
+        example: 4f1c2b9a-7e2c-4f0a-9d3e-0b1a2c3d4e5f
+
+  responses:
+    BadRequest:
+      description: Malformed request — body is not valid JSON, the wrong content type, or empty.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            detail: Request body could not be parsed as JSON.
+    ValidationError:
+      description: The request JSON was parsed but failed schema validation.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/HTTPValidationError"
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status]
+      properties:
+        status:
+          type: string
+          example: ok
+
+    # ----- Task 1: Signal Triage -----
+
+    Reporter:
+      type: object
+      required: [name, email, department]
+      properties:
+        name:
+          type: string
+          example: Adaeze Okonkwo
+        email:
+          type: string
+          format: email
+          example: a.okonkwo@station.deepspace
+        department:
+          type: string
+          example: Habitat Operations
+
+    Channel:
+      type: string
+      description: Origin channel of the signal.
+      enum:
+        - subspace_relay
+        - holodeck_comm
+        - bridge_terminal
+        - emergency_beacon
+
+    Category:
+      type: string
+      description: Closed set of signal categories (macro-F1 scored).
+      enum:
+        - Crew Access & Biometrics
+        - Hull & Structural Systems
+        - Communications & Navigation
+        - Flight Software & Instruments
+        - Threat Detection & Containment
+        - Telemetry & Data Banks
+        - Mission Briefing Request
+        - Not a Mission Signal
+
+    Priority:
+      type: string
+      description: P1 (critical/life) … P4 (routine). Ordinally scored (off-by-one earns partial credit).
+      enum: [P1, P2, P3, P4]
+
+    Team:
+      type: string
+      description: Owning specialist team. "None" only for non-mission signals.
+      enum:
+        - Crew Identity & Airlock Control
+        - Spacecraft Systems Engineering
+        - Deep Space Communications
+        - Mission Software Operations
+        - Threat Response Command
+        - Telemetry & Data Core
+        - "None"
+
+    MissingInfo:
+      type: string
+      description: A concept whose evidence is ABSENT from the signal. Emit only when truly missing.
+      enum:
+        - affected_subsystem
+        - anomaly_readout
+        - sequence_to_reproduce
+        - affected_crew
+        - habitat_conditions
+        - stardate
+        - previous_signal_id
+        - crew_contact
+        - module_specs
+        - software_version
+        - sector_coordinates
+        - mission_impact
+        - recurrence_pattern
+        - sensor_log_or_capture
+        - biometric_method
+        - system_configuration
+
+    TriageRequest:
+      type: object
+      required: [ticket_id, subject, description, reporter, created_at, channel]
+      properties:
+        ticket_id:
+          type: string
+          example: SIG-4471
+        subject:
+          type: string
+          example: Minor pressure irregularity in Hab Ring C
+        description:
+          type: string
+        reporter:
+          $ref: "#/components/schemas/Reporter"
+        created_at:
+          type: string
+          description: Timestamp the signal was created (ISO-8601 string). Does NOT count as `stardate`.
+          example: "2147-03-12T08:42:00Z"
+        channel:
+          $ref: "#/components/schemas/Channel"
+        attachments:
+          type: array
+          items:
+            type: string
+          default: []
+
+    TriageResponse:
+      type: object
+      required:
+        - ticket_id
+        - category
+        - priority
+        - assigned_team
+        - needs_escalation
+        - missing_information
+        - next_best_action
+        - remediation_steps
+      properties:
+        ticket_id:
+          type: string
+          example: SIG-4471
+        category:
+          $ref: "#/components/schemas/Category"
+        priority:
+          $ref: "#/components/schemas/Priority"
+        assigned_team:
+          $ref: "#/components/schemas/Team"
+        needs_escalation:
+          type: boolean
+        missing_information:
+          type: array
+          items:
+            $ref: "#/components/schemas/MissingInfo"
+        next_best_action:
+          type: string
+        remediation_steps:
+          type: array
+          items:
+            type: string
+
+    # ----- Task 2: Document Extraction -----
+
+    ExtractRequest:
+      type: object
+      required: [document_id, content]
+      properties:
+        document_id:
+          type: string
+          example: DOC-2025-0142
+        content:
+          type: string
+          description: Base64-encoded document image bytes (PNG).
+        content_format:
+          type: string
+          default: image_base64
+          description: Always `image_base64` at request time (the harness inlines images).
+        json_schema:
+          type: string
+          nullable: true
+          default: null
+          description: JSON Schema (as a string) describing the exact output fields to return.
+
+    ExtractResponse:
+      type: object
+      required: [document_id]
+      additionalProperties: true
+      description: >
+        `document_id` plus whatever fields the request's `json_schema` specified. Field names and
+        shapes are dynamic per document, so additional properties are allowed.
+      properties:
+        document_id:
+          type: string
+          example: DOC-2025-0142
+
+    # ----- Task 3: Workflow Orchestration -----
+
+    ToolParameter:
+      type: object
+      required: [name, type, description]
+      properties:
+        name:
+          type: string
+          example: filter
+        type:
+          type: string
+          example: string
+        description:
+          type: string
+          example: Search filter expression
+        required:
+          type: boolean
+          nullable: true
+
+    ToolDefinition:
+      type: object
+      required: [name, description, endpoint, parameters]
+      properties:
+        name:
+          type: string
+          example: crm_search
+        description:
+          type: string
+        endpoint:
+          type: string
+          description: HTTP endpoint to POST tool arguments to (already rewritten to the mock service at eval time).
+          example: http://localhost:9090/scenario/TASK-0024/crm_search
+        parameters:
+          description: Either a list of parameter objects or a simple name→type map.
+          oneOf:
+            - type: array
+              items:
+                $ref: "#/components/schemas/ToolParameter"
+            - type: object
+              additionalProperties:
+                type: string
+
+    OrchestrateRequest:
+      type: object
+      required: [task_id, goal, available_tools]
+      properties:
+        task_id:
+          type: string
+          example: TASK-0024
+        goal:
+          type: string
+        available_tools:
+          type: array
+          items:
+            $ref: "#/components/schemas/ToolDefinition"
+        constraints:
+          type: array
+          items:
+            type: string
+          default: []
+        mock_service_url:
+          type: string
+          nullable: true
+          description: Base URL for tool calls; build tool URLs as `{mock_service_url}/{tool_name}`.
+
+    StepExecuted:
+      type: object
+      required: [step, tool, parameters]
+      properties:
+        step:
+          type: integer
+          example: 1
+        tool:
+          type: string
+          example: crm_search
+        parameters:
+          type: object
+          additionalProperties: true
+        result_summary:
+          type: string
+          default: ""
+        success:
+          type: boolean
+          default: true
+
+    OrchestrateResponse:
+      type: object
+      required: [task_id, status, steps_executed]
+      properties:
+        task_id:
+          type: string
+          example: TASK-0024
+        status:
+          type: string
+          enum: [completed, partial, failed]
+        steps_executed:
+          type: array
+          items:
+            $ref: "#/components/schemas/StepExecuted"
+        accounts_processed:
+          type: integer
+          nullable: true
+        emails_sent:
+          type: integer
+          nullable: true
+        emails_skipped:
+          type: integer
+          nullable: true
+        skip_reasons:
+          type: object
+          nullable: true
+          additionalProperties:
+            type: integer
+        constraints_satisfied:
+          type: array
+          items:
+            type: string
+          default: []
+
+    # ----- Shared error envelopes -----
+
+    Error:
+      type: object
+      properties:
+        detail:
+          type: string
+
+    HTTPValidationError:
+      type: object
+      properties:
+        detail:
+          type: array
+          items:
+            $ref: "#/components/schemas/ValidationErrorItem"
+
+    ValidationErrorItem:
+      type: object
+      required: [loc, msg, type]
+      properties:
+        loc:
+          type: array
+          items:
+            anyOf:
+              - type: string
+              - type: integer
+        msg:
+          type: string
+        type:
+          type: string
