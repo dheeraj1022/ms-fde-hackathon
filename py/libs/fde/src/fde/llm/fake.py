@@ -5,19 +5,17 @@ delegates to a handler you provide, so a test can pin exact model behavior and a
 the surrounding rules / merge / loop logic. Calls are recorded for inspection.
 """
 
-from __future__ import annotations
-
+from collections.abc import Callable
 from typing import Any
-from typing import Callable
 from typing import TypeVar
 
-from pydantic import BaseModel
+from ms.common.models.base import FrozenBaseModel
 
 from fde.llm.client import AssistantTurn
 
-T = TypeVar("T", bound=BaseModel)
+T = TypeVar("T", bound=FrozenBaseModel)
 
-ParseHandler = Callable[..., BaseModel]
+ParseHandler = Callable[..., FrozenBaseModel]
 ExtractHandler = Callable[..., dict[str, Any]]
 ChatHandler = Callable[..., AssistantTurn]
 

@@ -12,8 +12,6 @@ Keeping this behind a ``Protocol`` lets tests inject ``FakeLLMClient`` and lets 
 services fall back to deterministic logic when no model is configured.
 """
 
-from __future__ import annotations
-
 import asyncio
 import json
 import logging
@@ -24,14 +22,14 @@ from typing import Protocol
 from typing import TypeVar
 from typing import runtime_checkable
 
-from pydantic import BaseModel
+from ms.common.models.base import FrozenBaseModel
 
 from fde.config import Settings
 from fde.config import get_settings
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T", bound=BaseModel)
+T = TypeVar("T", bound=FrozenBaseModel)
 
 
 @dataclass
@@ -93,7 +91,7 @@ class AzureOpenAIClient:
     def __init__(self, settings: Settings | None = None) -> None:
         # Imported lazily so importing this module never hard-requires the SDK
         # until a real client is actually constructed.
-        from openai import AsyncAzureOpenAI
+        from openai import AsyncAzureOpenAI  # noqa: PLC0415
 
         self._s = settings or get_settings()
         self.model_name = self._s.model_name
@@ -125,10 +123,10 @@ class AzureOpenAIClient:
 
     async def _run(self, factory: Any) -> Any:
         """Execute ``factory()`` with concurrency cap, timeout, and retries."""
-        from openai import APIConnectionError
-        from openai import APIStatusError
-        from openai import APITimeoutError
-        from openai import RateLimitError
+        from openai import APIConnectionError  # noqa: PLC0415
+        from openai import APIStatusError  # noqa: PLC0415
+        from openai import APITimeoutError  # noqa: PLC0415
+        from openai import RateLimitError  # noqa: PLC0415
 
         attempt = 0
         last_exc: Exception | None = None

@@ -873,6 +873,7 @@ source = { editable = "apps/sample" }
 dependencies = [
     { name = "email-validator" },
     { name = "fastapi" },
+    { name = "fde" },
     { name = "pydantic" },
     { name = "uvicorn" },
 ]
@@ -888,6 +889,7 @@ dev = [
 requires-dist = [
     { name = "email-validator", specifier = ">=2.0.0" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "fde", editable = "libs/fde" },
     { name = "pydantic", specifier = ">=2.11.0" },
     { name = "uvicorn", specifier = ">=0.34.0" },
 ]

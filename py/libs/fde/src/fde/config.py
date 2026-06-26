@@ -11,8 +11,6 @@ one. Smaller/cheaper models score better on the benchmark's efficiency dimension
 default leans small.
 """
 
-from __future__ import annotations
-
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings

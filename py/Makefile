@@ -35,7 +35,7 @@ setup: ## Install all dependencies
 	@echo "Setup complete. Run 'make run' to start the sample solution."
 
 run: ## Start the sample solution on port 8000
-	cd apps/sample && uvicorn main:app --port 8000 --reload
+	cd apps/sample && uvicorn main:app --port 8000 --reload --timeout-keep-alive 75
 
 eval: ## Score all 3 tasks against http://localhost:8000
 	cd apps/eval && python run_eval.py --endpoint http://localhost:8000
