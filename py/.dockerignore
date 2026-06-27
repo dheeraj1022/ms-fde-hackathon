@@ -1,0 +1,19 @@
+# Local virtualenvs (platform-specific, huge — never ship into the image)
+.venv
+**/.venv
+
+# Secrets — injected at runtime, must never be baked into the image
+.env
+**/.env
+
+# Python / tool caches
+**/__pycache__
+**/*.pyc
+**/*.pyo
+**/.pytest_cache
+**/.ruff_cache
+**/.mypy_cache
+
+# Misc
+*.log
+.git
