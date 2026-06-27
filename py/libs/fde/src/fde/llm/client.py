@@ -31,6 +31,19 @@ logger = logging.getLogger(__name__)
 
 T = TypeVar("T", bound=FrozenBaseModel)
 
+# Reasoning models (OpenAI o-series and the GPT-5 family) only run at their default
+# temperature and reject an explicit ``temperature`` argument, so it must be omitted for
+# them. The GPT-5 ``-chat`` variants are non-reasoning and keep normal temperature control.
+_REASONING_PREFIXES: tuple[str, ...] = ("o1", "o3", "o4", "gpt-5")
+
+
+def _is_reasoning_model(model_name: str) -> bool:
+    """True when the model rejects an explicit ``temperature`` (o-series / GPT-5 family)."""
+    name = model_name.strip().lower()
+    if not name.startswith(_REASONING_PREFIXES):
+        return False
+    return "-chat" not in name
+
 
 @dataclass
 class ToolCall:
@@ -154,6 +167,22 @@ class AzureOpenAIClient:
         assert last_exc is not None
         raise last_exc
 
+    def _sampling_kwargs(self, temperature_override: float | None = None) -> dict[str, Any]:
+        """Model-specific sampling kwargs.
+
+        Temperature is optional, not required. Standard models take the configured value
+        (default 0.0) for deterministic, reproducible triage. Reasoning models (o-series /
+        GPT-5 family) reject an explicit temperature and instead expose a reasoning_effort
+        knob; we run them at the configured effort ("low" by default) to keep lightweight
+        triage fast, since the benchmark cost tier is keyed off the model name and is
+        unaffected by effort.
+        """
+        if _is_reasoning_model(self._s.model_name):
+            effort = self._s.reasoning_effort.strip().lower()
+            return {"reasoning_effort": effort} if effort else {}
+        temp = self._s.llm_temperature if temperature_override is None else temperature_override
+        return {"temperature": temp}
+
     # --- call shapes ---
 
     async def parse(
@@ -173,7 +202,7 @@ class AzureOpenAIClient:
                     {"role": "user", "content": user},
                 ],
                 response_format=response_model,
-                temperature=self._s.llm_temperature if temperature is None else temperature,
+                **self._sampling_kwargs(temperature),
             )
 
         completion = await self._run(factory)
@@ -212,7 +241,7 @@ class AzureOpenAIClient:
                     {"role": "user", "content": content},
                 ],
                 response_format=response_format,
-                temperature=self._s.llm_temperature,
+                **self._sampling_kwargs(),
             )
 
         completion = await self._run(factory)
@@ -235,8 +264,8 @@ class AzureOpenAIClient:
             kwargs: dict[str, Any] = {
                 "model": deployment or self._s.aoai_deployment,
                 "messages": messages,
-                "temperature": self._s.llm_temperature,
             }
+            kwargs.update(self._sampling_kwargs())
             if tools:
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"

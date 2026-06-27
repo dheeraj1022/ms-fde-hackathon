@@ -5,7 +5,7 @@ or a local ``.env`` file (development). Secrets never live in source control —
 ``.env.example`` and keep your real ``.env`` gitignored.
 
 The model is intentionally *configurable*: a single multimodal Azure OpenAI deployment
-(default ``gpt-4.1-mini``) powers all three tasks, and ``AOAI_VISION_DEPLOYMENT`` can
+(default ``gpt-5.4-mini``) powers all three tasks, and ``AOAI_VISION_DEPLOYMENT`` can
 override the deployment used for the vision-based ``/extract`` task if you have a separate
 one. Smaller/cheaper models score better on the benchmark's efficiency dimension, so the
 default leans small.
@@ -35,11 +35,11 @@ class Settings(BaseSettings):
     azure_openai_api_version: str = "2024-10-21"  # AZURE_OPENAI_API_VERSION
 
     # --- Deployments ---
-    aoai_deployment: str = "gpt-4.1-mini"    # AOAI_DEPLOYMENT (used for triage + orchestrate)
+    aoai_deployment: str = "gpt-5.4-mini"    # AOAI_DEPLOYMENT (used for triage + orchestrate)
     aoai_vision_deployment: str = ""         # AOAI_VISION_DEPLOYMENT (override for /extract)
 
     # Reported in the X-Model-Name header for the platform's cost scoring.
-    model_name: str = "gpt-4.1-mini"         # MODEL_NAME
+    model_name: str = "gpt-5.4-mini"         # MODEL_NAME
 
     # --- Resilience / efficiency knobs ---
     request_timeout_s: float = 30.0          # REQUEST_TIMEOUT_S (per-attempt deadline)
@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     retry_base_delay_s: float = 1.0          # RETRY_BASE_DELAY_S (exponential backoff base)
     max_concurrency: int = 8                 # MAX_CONCURRENCY (in-flight LLM calls)
     llm_temperature: float = 0.0             # LLM_TEMPERATURE
+    # Reasoning models (o-series / GPT-5) trade latency for depth via an effort knob.
+    # "minimal" keeps lightweight triage fast (near-zero reasoning tokens) and measured
+    # best on the benchmark; the cost tier is keyed off MODEL_NAME and is unaffected.
+    # Values: minimal | low | medium | high.
+    reasoning_effort: str = "minimal"        # REASONING_EFFORT
 
     @property
     def configured(self) -> bool:

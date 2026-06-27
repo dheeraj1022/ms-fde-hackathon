@@ -68,9 +68,12 @@ A calm note from a senior officer can still be P1; someone yelling "URGENT" abou
 {ESCALATION_RULES}
 
 ## missing_information
-Emit a label ONLY when the description lacks the evidence for that concept. An empty list is common and correct \
-for well-described tickets, briefing requests, and non-signals. Over-emitting is penalized exactly as much as \
-missing one, so do not pad the list.
+List ONLY the fields a responder genuinely needs before they can act AND that are truly \
+absent from the signal. Be conservative: most tickets need 0-2 labels, an empty list is \
+common and correct (well-described tickets, briefing requests, and non-signals are usually \
+empty), and more than two or three is rare. Do not pad with merely "nice to have" fields, \
+and do not flag a concept that is already stated or reasonably inferable from the signal. \
+Over-emitting is penalized exactly as much as omitting one, so when in doubt, leave it out.
 {_missing_info_block()}
 
 ## next_best_action and remediation_steps
