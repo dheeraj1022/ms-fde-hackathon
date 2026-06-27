@@ -20,6 +20,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi import Request
 from fde.config import get_settings
+from fde.extract import extract as run_extract
 from fde.llm import build_client
 from fde.platform import install_platform
 from fde.triage import triage as run_triage
@@ -61,8 +62,8 @@ async def triage(req: TriageRequest, request: Request) -> TriageResponse:
 # Task 2: Document Extraction
 @app.post("/extract", response_model=ExtractResponse)
 async def extract(req: ExtractRequest, request: Request) -> ExtractResponse:
-    # TODO(task2): vision extraction against req.json_schema via fde.extract.
-    return ExtractResponse(document_id=req.document_id)
+    client = getattr(request.app.state, "llm", None)
+    return await run_extract(req, client)
 
 
 # Task 3: Workflow Orchestration

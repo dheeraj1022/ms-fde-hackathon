@@ -223,7 +223,13 @@ class AzureOpenAIClient:
     ) -> dict[str, Any]:
         content: list[dict[str, Any]] = [
             {"type": "text", "text": user},
-            {"type": "image_url", "image_url": {"url": f"data:image/png;base64,{image_b64}"}},
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:image/png;base64,{image_b64}",
+                    "detail": self._s.vision_detail,
+                },
+            },
         ]
         if json_schema is not None:
             response_format: dict[str, Any] = {
