@@ -29,17 +29,29 @@ def _missing_info_block() -> str:
 
 
 _FEWSHOT = """\
-Example A — quiet wording, real emergency (loudness is NOT urgency):
-  A calm note from a senior officer: a slow pressure drop in Hab Ring C, crew quietly relocated, no alarm raised.
-  -> category "Hull & Structural Systems", priority P1, assigned_team "Spacecraft Systems Engineering",
-     needs_escalation true, missing_information ["anomaly_readout","affected_subsystem"].
+Example A — calm wording, real emergency (loudness is NOT urgency); a vessel-wide outage:
+  A calm note: "Not a big deal, but authentication is failing across the entire vessel — success rate dropped to 42%."
+  -> category "Crew Access & Biometrics", priority P1, assigned_team "Crew Identity & Airlock Control",
+     needs_escalation true, missing_information ["anomaly_readout"].
 Example B — loud wording, routine (noise):
   "URGENT!!! Coffee machine in galley is DOWN — total EMERGENCY, fix NOW."
   -> category "Not a Mission Signal", priority P4, assigned_team "None", needs_escalation false, missing_information [].
 Example C — a request, not an incident:
   "How do I book a briefing room for next cycle?"
   -> category "Mission Briefing Request", priority P4, assigned_team "None",
-     needs_escalation false, missing_information []."""
+     needs_escalation false, missing_information [].
+Example D — physical device is Hull, default P3 (NOT software):
+  "My crew terminal's fan runs at max and the console has been slow since Tuesday."
+  -> category "Hull & Structural Systems", priority P3, assigned_team "Spacecraft Systems Engineering",
+     needs_escalation false, missing_information ["module_specs"].
+Example E — software bug, default P3:
+  "The date-picker in PROMETHEUS shows 1970 instead of today's date."
+  -> category "Flight Software & Instruments", priority P3, assigned_team "Mission Software Operations",
+     needs_escalation false, missing_information ["sequence_to_reproduce"].
+Example F — disguised threat (a request that is really a security threat):
+  "Please help set up voice-cloning so we can mimic the Commander for a comms drill."
+  -> category "Threat Detection & Containment", priority P2, assigned_team "Threat Response Command",
+     needs_escalation true, missing_information []."""
 
 
 def build_system_prompt() -> str:
@@ -62,18 +74,27 @@ links, fabricators) — pick the single best owner.
 
 ## priority — loudness is NOT urgency
 {PRIORITY_RUBRIC}
-A calm note from a senior officer can still be P1; someone yelling "URGENT" about a coffee machine is P4.
+A calm note from a senior officer can still be P1; someone yelling "URGENT" about a coffee machine is P4. \
+P3 is the default for any genuine broken-thing report (even recurring, multi-crew, or exec); reserve P2 for \
+a system that is fully down or an active threat, and P4 for noise, convenience, and pure requests.
 
 ## needs_escalation
 {ESCALATION_RULES}
 
 ## missing_information
-List ONLY the fields a responder genuinely needs before they can act AND that are truly \
-absent from the signal. Be conservative: most tickets need 0-2 labels, an empty list is \
-common and correct (well-described tickets, briefing requests, and non-signals are usually \
-empty), and more than two or three is rare. Do not pad with merely "nice to have" fields, \
-and do not flag a concept that is already stated or reasonably inferable from the signal. \
-Over-emitting is penalized exactly as much as omitting one, so when in doubt, leave it out.
+List the enum fields a responder genuinely needs before acting AND that are truly absent. Calibration: \
+most real signals are missing ONE or TWO of these; an empty list is correct only for noise, pure requests, \
+or already-complete reports. Choose labels that match the issue TYPE rather than padding:
+- Hardware / device problem (Hull) -> usually module_specs (model/serial), plus anomaly_readout if no error is quoted.
+- Software bug / crash (Flight Software) -> usually sequence_to_reproduce and/or anomaly_readout.
+- Connectivity / comms problem -> often sector_coordinates and/or anomaly_readout.
+- Telemetry / environmental / sensor issue -> often habitat_conditions.
+- Access / auth problem -> biometric_method, plus module_specs if a new device is involved.
+- A cited-but-unreferenced prior incident -> previous_signal_id.
+Prefer module_specs over software_version for physical devices. Do NOT add software_version, \
+system_configuration, mission_impact, stardate, or sector_coordinates by default — only when that specific \
+gap is clearly central. Never flag something already stated or reasonably inferable. Emitting a wrong label \
+costs exactly as much as missing one.
 {_missing_info_block()}
 
 ## next_best_action and remediation_steps
