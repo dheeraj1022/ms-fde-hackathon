@@ -2,37 +2,62 @@
 
 ## System overview
 
-<!-- High-level description of your solution. What components does your system have? How do they interact? Diagram encouraged. -->
+One HTTPS service exposes all four endpoints required by FDEBench: `/health`,
+`/triage`, `/extract`, `/orchestrate`. It is deployed as a single container on
+Azure Container Apps and is intentionally small, layered, and degrade-safe — a
+wrong route here is "a depressurized airlock", so every path has a
+deterministic fallback.
+
+```
+Client ──HTTPS──▶ Azure Container App (FastAPI, uvicorn)
+                    │
+                    ├─ fde.platform   observability headers + uniform error envelope
+                    ├─ fde.contracts  request/response validation (pydantic)
+                    ├─ fde.triage     Task 1: classify / prioritize / route / gaps
+                    ├─ fde.extract    Task 2: document → structured fields + fidelity
+                    ├─ fde.orchestrate Task 3: tool-calling agent over a workflow
+                    └─ fde.llm        Azure OpenAI client + resilience/fallback
+                                         │
+                                         └─▶ Azure OpenAI (gpt-5.4-mini, vision)
+```
+
+## Layers
+
+- **Transport (`apps/sample/main.py`)** — thin FastAPI app. No business logic;
+  it validates with shared contracts and delegates to one function per task.
+- **Contracts (`fde.contracts`/`models`)** — pydantic request/response models,
+  the single source of truth for I/O shape across server, tests, and eval.
+- **Domain (`fde.triage` / `fde.extract` / `fde.orchestrate`)** — pure logic per
+  task. Each accepts an optional LLM client; if it's `None` (no creds) it falls
+  back to deterministic heuristics so the service never hard-fails.
+- **LLM (`fde.llm`)** — builds the Azure OpenAI client once at startup, owns
+  sampling/reasoning-effort per task, retries, and timeouts.
+- **Platform (`fde.platform`)** — installs latency/observability headers and a
+  uniform error envelope so malformed input returns structured 4xx, not 500s.
 
 ## Endpoints
 
-| Endpoint | Method | Description |
+| Endpoint | Task | Output |
 |---|---|---|
-| `/health` | GET | Health check. Returns 200 if the service is alive |
-| `/triage` | POST | Task 1: Classify a spacecraft signal across 5 dimensions |
-| `/extract` | POST | Task 2: Extract structured data from a document image |
-| `/orchestrate` | POST | Task 3: Plan and execute a multi-step workflow |
+| `GET /health` | — | `{"status":"ok"}` |
+| `POST /triage` | 1 | category, priority, owning team, missing info |
+| `POST /extract` | 2 | structured fields + verbatim text fidelity |
+| `POST /orchestrate` | 3 | tool-call trace satisfying workflow constraints |
 
-## Task 1 (Signal Triage): AI pipeline
+## Design principles
 
-<!-- How does the triage logic work? What model, what prompt strategy? Tool calling or content parsing? How is the system prompt structured? -->
+- **Judgment over keywords** — the LLM decides category/priority/owner; hard
+  rules only force escalation for non-negotiables (hull breach, atmospheric
+  compromise, restricted-zone access).
+- **Degrade-safe** — every endpoint returns a valid contract even with no
+  credentials, malformed input, or upstream failure.
+- **One service, one image** — simplest possible deploy + cold start; all tasks
+  share the same client and platform middleware.
 
-## Task 2 (Document Extraction): AI pipeline
+## Azure topology
 
-<!-- How does extraction work? What vision model do you use? How do you handle the per-document json_schema? What normalization steps run after the LLM call? -->
-
-## Task 3 (Workflow Orchestration): AI pipeline
-
-<!-- How does the planner work? Single upfront plan or iterative re-planning? How do you handle tool failures? Parallel vs. sequential execution? -->
-
-## Cross-Task Design Decisions
-
-<!-- What is shared across tasks? Model selection, error handling, response header generation, configuration? What is task-specific? -->
-
-## Infrastructure
-
-<!-- How is your solution deployed? What cloud services, containers, or platforms? -->
-
-## Key tradeoffs
-
-<!-- What decisions did you make and why? Model size vs. latency? Accuracy vs. cost? Single model vs. model-per-task? What would you change for production? -->
+- **Azure Container Apps** — public HTTPS, single revision, scales to handle
+  the benchmark's concurrent burst.
+- **Azure Container Registry** (`fdehackdyh8j`) — image `fde-triage:v4`.
+- **Azure OpenAI** — vision-capable `gpt-5.4-mini` deployment; key injected as a
+  Container App secret. Infra is codified in `infra/app` (Pulumi).
