@@ -52,6 +52,9 @@ class Settings(BaseSettings):
     # best on the benchmark; the cost tier is keyed off MODEL_NAME and is unaffected.
     # Values: minimal | low | medium | high.
     reasoning_effort: str = "minimal"        # REASONING_EFFORT
+    # Orchestration (Task 3) is multi-step: it reasons over many entities, counts, and
+    # ordering, so it gets its own (higher) effort while triage stays fast.
+    orchestrate_reasoning_effort: str = "medium"  # ORCHESTRATE_REASONING_EFFORT
     # Vision OCR image detail (Task 2 extraction). "high" reads dense tables / small text
     # far better, at higher token + latency cost; "low"/"auto" are cheaper and faster.
     vision_detail: str = "high"              # VISION_DETAIL (low|high|auto)

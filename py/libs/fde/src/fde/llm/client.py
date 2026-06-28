@@ -167,7 +167,7 @@ class AzureOpenAIClient:
         assert last_exc is not None
         raise last_exc
 
-    def _sampling_kwargs(self, temperature_override: float | None = None) -> dict[str, Any]:
+    def _sampling_kwargs(self, temperature_override: float | None = None, effort_override: str | None = None) -> dict[str, Any]:
         """Model-specific sampling kwargs.
 
         Temperature is optional, not required. Standard models take the configured value
@@ -175,10 +175,11 @@ class AzureOpenAIClient:
         GPT-5 family) reject an explicit temperature and instead expose a reasoning_effort
         knob; we run them at the configured effort ("low" by default) to keep lightweight
         triage fast, since the benchmark cost tier is keyed off the model name and is
-        unaffected by effort.
+        unaffected by effort. ``effort_override`` lets a heavier call shape (orchestration)
+        ask for more reasoning without slowing triage.
         """
         if _is_reasoning_model(self._s.model_name):
-            effort = self._s.reasoning_effort.strip().lower()
+            effort = (effort_override or self._s.reasoning_effort).strip().lower()
             return {"reasoning_effort": effort} if effort else {}
         temp = self._s.llm_temperature if temperature_override is None else temperature_override
         return {"temperature": temp}
@@ -271,7 +272,7 @@ class AzureOpenAIClient:
                 "model": deployment or self._s.aoai_deployment,
                 "messages": messages,
             }
-            kwargs.update(self._sampling_kwargs())
+            kwargs.update(self._sampling_kwargs(effort_override=self._s.orchestrate_reasoning_effort))
             if tools:
                 kwargs["tools"] = tools
                 kwargs["tool_choice"] = "auto"

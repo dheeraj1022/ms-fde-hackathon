@@ -22,6 +22,7 @@ from fastapi import Request
 from fde.config import get_settings
 from fde.extract import extract as run_extract
 from fde.llm import build_client
+from fde.orchestrate import orchestrate as run_orchestrate
 from fde.platform import install_platform
 from fde.triage import triage as run_triage
 from models import ExtractRequest
@@ -69,10 +70,5 @@ async def extract(req: ExtractRequest, request: Request) -> ExtractResponse:
 # Task 3: Workflow Orchestration
 @app.post("/orchestrate", response_model=OrchestrateResponse)
 async def orchestrate(req: OrchestrateRequest, request: Request) -> OrchestrateResponse:
-    # TODO(task3): plan + execute tools via fde.orchestrate.
-    return OrchestrateResponse(
-        task_id=req.task_id,
-        status="completed",
-        steps_executed=[],
-        constraints_satisfied=[],
-    )
+    client = getattr(request.app.state, "llm", None)
+    return await run_orchestrate(req, client)
