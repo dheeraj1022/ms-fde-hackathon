@@ -21,6 +21,7 @@ _JSON_TYPES = {"string", "number", "integer", "boolean", "object", "array"}
 
 
 def _param_schema(p_type: str) -> dict[str, Any]:
+    """Coerce a tool param type to a valid JSON-schema type (default string)."""
     t = (p_type or "string").strip().lower()
     return {"type": t if t in _JSON_TYPES else "string"}
 
@@ -67,6 +68,7 @@ def endpoint_map(tools: list[ToolDefinition], mock_service_url: str | None) -> d
 
 
 def _summarize(body: Any) -> str:
+    """Compact a tool result to a short string for the trace/model context."""
     text = json.dumps(body) if not isinstance(body, str) else body
     return text if len(text) <= 240 else text[:237] + "..."
 

@@ -8,6 +8,8 @@ dependencies = [
     "uvicorn>=0.34.0",
     "pydantic>=2.11.0",
     "email-validator>=2.0.0",
+    "prometheus-fastapi-instrumentator>=7.0.0",
+    "azure-monitor-opentelemetry>=1.6.0",
     "fde",
 ]
 

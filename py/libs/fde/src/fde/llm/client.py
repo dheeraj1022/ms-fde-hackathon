@@ -167,7 +167,9 @@ class AzureOpenAIClient:
         assert last_exc is not None
         raise last_exc
 
-    def _sampling_kwargs(self, temperature_override: float | None = None, effort_override: str | None = None) -> dict[str, Any]:
+    def _sampling_kwargs(
+        self, temperature_override: float | None = None, effort_override: str | None = None
+    ) -> dict[str, Any]:
         """Model-specific sampling kwargs.
 
         Temperature is optional, not required. Standard models take the configured value

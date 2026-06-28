@@ -19,6 +19,8 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from fde.metrics import METRICS
+
 logger = logging.getLogger(__name__)
 
 REQUEST_ID_HEADER = "X-Request-Id"
@@ -57,6 +59,7 @@ def install_platform(app: FastAPI, *, model_name: str) -> None:
         response.headers[REQUEST_ID_HEADER] = request_id
         response.headers[LATENCY_HEADER] = f"{elapsed_ms:.1f}"
         response.headers.setdefault(MODEL_HEADER, model_name)
+        METRICS.record(request.url.path, elapsed_ms, response.status_code, model_name)
         return response
 
     @app.exception_handler(RequestValidationError)

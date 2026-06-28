@@ -84,3 +84,27 @@ def test_to_function_specs_maps_params_and_required() -> None:
 def test_endpoint_map_prefers_tool_endpoint() -> None:
     m = endpoint_map(_TOOLS, "http://mock/scenario/TASK-1")
     assert m["audit_log"] == "http://127.0.0.1:1/audit_log"
+
+
+def test_emails_sent_excludes_failed_sends() -> None:
+    tools = [
+        ToolDefinition(
+            name="email_send",
+            description="send",
+            endpoint="http://127.0.0.1:1/email_send",
+            parameters=[ToolParameter(name="account_id", type="string", description="a", required=True)],
+        )
+    ]
+
+    def handler(**_kw):
+        if handler.n == 0:  # type: ignore[attr-defined]
+            handler.n = 1  # type: ignore[attr-defined]
+            tc = ToolCall(id="1", name="email_send", arguments={"account_id": "A"})
+            return AssistantTurn(content="", tool_calls=[tc])
+        return AssistantTurn(content="done", tool_calls=[])
+
+    handler.n = 0  # type: ignore[attr-defined]
+    resp = asyncio.run(orchestrate(_req(available_tools=tools), FakeLLMClient(chat_handler=handler)))
+    # the send hit an unreachable endpoint (success=False) so it must not be counted
+    assert resp.emails_sent is None
+

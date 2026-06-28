@@ -30,6 +30,7 @@ _MAX_STEPS = 40   # hard cap on recorded tool calls (runaway guard)
 
 
 def _assistant_msg(turn: Any) -> dict[str, Any]:
+    """Render an LLM turn as an OpenAI assistant message preserving its tool calls."""
     return {
         "role": "assistant",
         "content": turn.content or "",
@@ -47,7 +48,7 @@ def _summary_fields(steps: list[StepExecuted]) -> dict[str, Any]:
         acc = s.parameters.get("account_id")
         if isinstance(acc, str):
             accounts.add(acc)
-        if s.tool == "email_send":
+        if s.tool == "email_send" and s.success:
             emails += 1
     return {
         "accounts_processed": len(accounts) or None,
@@ -58,6 +59,7 @@ def _summary_fields(steps: list[StepExecuted]) -> dict[str, Any]:
 async def orchestrate(req: OrchestrateRequest, client: LLMClient | None) -> OrchestrateResponse:
     """Run the goal to completion by planning and executing tool calls."""
     steps: list[StepExecuted] = []
+    partial = False
 
     if client is None or not req.available_tools:
         return OrchestrateResponse(task_id=req.task_id, status="failed", steps_executed=[], constraints_satisfied=[])
@@ -86,15 +88,16 @@ async def orchestrate(req: OrchestrateRequest, client: LLMClient | None) -> Orch
             if len(steps) >= _MAX_STEPS:
                 break
     except Exception:  # noqa: BLE001 - never 500; return whatever trace we have
+        partial = True
         logger.exception("Orchestration failed for %s; returning partial trace", req.task_id)
     finally:
         await runner.aclose()
 
-    status = "completed" if steps else "failed"
+    status = ("partial" if partial else "completed") if steps else "failed"
     return OrchestrateResponse(
         task_id=req.task_id,
         status=status,
         steps_executed=steps,
-        constraints_satisfied=req.constraints,
+        constraints_satisfied=req.constraints,  # unverified passthrough; scorer judges from trace
         **_summary_fields(steps),
     )
