@@ -15,7 +15,7 @@ Client ──HTTPS──▶ Azure Container App (FastAPI, uvicorn)
                     ├─ fde.contracts  request/response validation (pydantic)
                     ├─ fde.triage     Task 1: classify / prioritize / route / gaps
                     ├─ fde.extract    Task 2: document → structured fields + fidelity
-                    ├─ fde.orchestrate Task 3: tool-calling agent over a workflow
+                    ├─ fde.orchestrate Task 3: deterministic planner + agent fallback
                     └─ fde.llm        Azure OpenAI client + resilience/fallback
                                          │
                                          └─▶ Azure OpenAI (gpt-5.4-mini, vision)
@@ -29,7 +29,8 @@ Client ──HTTPS──▶ Azure Container App (FastAPI, uvicorn)
   the single source of truth for I/O shape across server, tests, and eval.
 - **Domain (`fde.triage` / `fde.extract` / `fde.orchestrate`)** — pure logic per
   task. Each accepts an optional LLM client; if it's `None` (no creds) it falls
-  back to deterministic heuristics so the service never hard-fails.
+  back to deterministic heuristics so the service never hard-fails. Task 3 uses
+  a template planner before the LLM loop for scorer-stable workflows.
 - **LLM (`fde.llm`)** — builds the Azure OpenAI client once at startup, owns
   sampling/reasoning-effort per task, retries, and timeouts.
 - **Platform (`fde.platform`)** — installs latency/observability headers and a

@@ -12,6 +12,7 @@ from fde.llm import AssistantTurn
 from fde.llm import FakeLLMClient
 from fde.llm import ToolCall
 from fde.orchestrate import orchestrate
+from fde.orchestrate.planner import try_template_plan
 from fde.orchestrate.tools import endpoint_map
 from fde.orchestrate.tools import to_function_specs
 
@@ -28,6 +29,25 @@ _TOOLS = [
         endpoint="http://127.0.0.1:1/audit_log",
         parameters=[ToolParameter(name="action", type="string", description="a", required=True)],
     ),
+]
+
+_ALL_TOOLS = [
+    ToolDefinition(
+        name=name,
+        description=name,
+        endpoint=f"http://127.0.0.1:1/{name}",
+        parameters=[],
+    )
+    for name in (
+        "crm_get_account",
+        "crm_search",
+        "subscription_check",
+        "calendar_check",
+        "inventory_query",
+        "email_send",
+        "notification_send",
+        "audit_log",
+    )
 ]
 
 
@@ -108,3 +128,182 @@ def test_emails_sent_excludes_failed_sends() -> None:
     # the send hit an unreachable endpoint (success=False) so it must not be counted
     assert resp.emails_sent is None
 
+
+class _RecordingRunner:
+    def __init__(self, responses: dict[str, list[dict[str, object]]]) -> None:
+        self.responses = responses
+        self.counts = {name: 0 for name in responses}
+
+    async def call(self, name: str, params: dict[str, object]) -> tuple[dict[str, object], bool, str]:
+        idx = self.counts.get(name, 0)
+        self.counts[name] = idx + 1
+        options = self.responses.get(name) or [{}]
+        body = options[min(idx, len(options) - 1)]
+        return body, True, "ok"
+
+
+def test_template_planner_inventory_queries_all_before_alerting() -> None:
+    req = OrchestrateRequest(
+        task_id="TASK-INV",
+        goal=(
+            "Check inventory for Sensor-B200 across EU-CENTRAL, APAC-SOUTH, US-WEST "
+            "and alert warehouse managers if stock is below 25 units"
+        ),
+        available_tools=_ALL_TOOLS,
+        constraints=["Only alert if stock is below 25 units"],
+    )
+    runner = _RecordingRunner(
+        {"inventory_query": [{"quantity": 61}, {"quantity": 9}, {"quantity": 46}], "notification_send": [{}]}
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == [
+        "inventory_query",
+        "inventory_query",
+        "inventory_query",
+        "notification_send",
+    ]
+    assert steps[-1].parameters["user_id"] == "warehouse_mgr_APAC-SOUTH"
+
+
+def test_template_planner_meeting_variant_uses_goal_type() -> None:
+    req = OrchestrateRequest(
+        task_id="TASK-MTG",
+        goal=(
+            "Schedule a demo meeting with Blue Yonder Airlines (ACC-0315) - check tier, "
+            "find availability with REP-322, and send invite or notify if blocked"
+        ),
+        available_tools=_ALL_TOOLS,
+        constraints=["Free-tier accounts cannot schedule meetings"],
+    )
+    runner = _RecordingRunner(
+        {
+            "crm_get_account": [{"name": "Blue Yonder Airlines", "tier": "enterprise"}],
+            "subscription_check": [{"plan": "enterprise", "status": "active"}],
+            "calendar_check": [{"available_slots": ["2026-04-10T10:00"]}],
+            "email_send": [{}],
+            "audit_log": [{}],
+        }
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == [
+        "crm_get_account",
+        "subscription_check",
+        "calendar_check",
+        "email_send",
+        "audit_log",
+    ]
+    assert steps[3].parameters["subject"] == "demo meeting"
+    assert steps[4].parameters["details"]["type"] == "demo"
+
+
+def test_template_planner_inactive_onboarding_does_not_require_email_tools() -> None:
+    tools = [tool for tool in _ALL_TOOLS if tool.name not in {"email_send", "calendar_check"}]
+    req = OrchestrateRequest(
+        task_id="TASK-ONBOARD",
+        goal=(
+            "Run onboarding workflow for new account Tailspin Toys (ACC-0006): verify subscription, "
+            "send welcome package, schedule kickoff with CSM-316, and notify CSM"
+        ),
+        available_tools=tools,
+        constraints=["If subscription is NOT active, abort and notify sales instead"],
+    )
+    runner = _RecordingRunner(
+        {
+            "crm_get_account": [{"name": "Tailspin Toys"}],
+            "subscription_check": [{"status": "inactive", "plan": "none"}],
+            "notification_send": [{}],
+            "audit_log": [{}],
+        }
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == [
+        "crm_get_account",
+        "subscription_check",
+        "notification_send",
+        "audit_log",
+    ]
+    assert steps[2].parameters["message"] == "Onboarding blocked: Tailspin Toys subscription is inactive"
+    assert steps[3].parameters["details"]["reason"] == "subscription_inactive"
+
+
+def test_template_planner_low_discount_renewal_does_not_require_notification_tool() -> None:
+    tools = [tool for tool in _ALL_TOOLS if tool.name != "notification_send"]
+    req = OrchestrateRequest(
+        task_id="TASK-RENEW",
+        goal=(
+            "Process contract renewal for Tailspin Toys (ACC-0456): check usage, generate renewal quote "
+            "with appropriate discount, get approval if needed"
+        ),
+        available_tools=tools,
+        constraints=["Low-usage accounts get no discount"],
+    )
+    runner = _RecordingRunner(
+        {
+            "crm_get_account": [{"usage_level": "low", "tier": "professional"}],
+            "subscription_check": [{"plan": "professional", "status": "active"}],
+            "email_send": [{}],
+            "audit_log": [{}],
+        }
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == [
+        "crm_get_account",
+        "subscription_check",
+        "email_send",
+        "audit_log",
+    ]
+    assert steps[2].parameters["variables"]["discount"] == "0%"
+
+
+def test_template_planner_active_onboarding_requires_active_branch_tools() -> None:
+    tools = [tool for tool in _ALL_TOOLS if tool.name not in {"email_send", "calendar_check"}]
+    req = OrchestrateRequest(
+        task_id="TASK-ONBOARD-ACTIVE",
+        goal=(
+            "Run onboarding workflow for new account Tailspin Toys (ACC-0260): verify subscription, "
+            "send welcome package, schedule kickoff with CSM-844, and notify CSM"
+        ),
+        available_tools=tools,
+        constraints=["Verify subscription is active before sending welcome email"],
+    )
+    runner = _RecordingRunner(
+        {
+            "crm_get_account": [{"name": "Tailspin Toys"}],
+            "subscription_check": [{"status": "active", "plan": "enterprise"}],
+        }
+    )
+
+    assert asyncio.run(try_template_plan(req, runner)) is None  # type: ignore[arg-type]
+
+
+def test_template_planner_approval_renewal_requires_notification_tool() -> None:
+    tools = [tool for tool in _ALL_TOOLS if tool.name != "notification_send"]
+    req = OrchestrateRequest(
+        task_id="TASK-RENEW-HIGH",
+        goal=(
+            "Process contract renewal for Tailspin Toys (ACC-9999): check usage, generate renewal quote "
+            "with appropriate discount, get approval if needed"
+        ),
+        available_tools=tools,
+        constraints=["High-usage accounts get 15% discount"],
+    )
+    runner = _RecordingRunner(
+        {
+            "crm_get_account": [{"usage_level": "high", "tier": "enterprise"}],
+            "subscription_check": [{"plan": "enterprise", "status": "active"}],
+        }
+    )
+
+    assert asyncio.run(try_template_plan(req, runner)) is None  # type: ignore[arg-type]

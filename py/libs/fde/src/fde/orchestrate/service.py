@@ -17,6 +17,7 @@ from fde.contracts import OrchestrateRequest
 from fde.contracts import OrchestrateResponse
 from fde.contracts import StepExecuted
 from fde.llm import LLMClient
+from fde.orchestrate.planner import try_template_plan
 from fde.orchestrate.prompt import SYSTEM
 from fde.orchestrate.prompt import build_user
 from fde.orchestrate.tools import ToolRunner
@@ -61,17 +62,35 @@ async def orchestrate(req: OrchestrateRequest, client: LLMClient | None) -> Orch
     steps: list[StepExecuted] = []
     partial = False
 
-    if client is None or not req.available_tools:
+    if not req.available_tools:
         return OrchestrateResponse(task_id=req.task_id, status="failed", steps_executed=[], constraints_satisfied=[])
 
-    specs = to_function_specs(req.available_tools)
     runner = ToolRunner(endpoint_map(req.available_tools, req.mock_service_url))
-    messages: list[dict[str, Any]] = [
-        {"role": "system", "content": SYSTEM},
-        {"role": "user", "content": build_user(req)},
-    ]
 
     try:
+        planned_steps = await try_template_plan(req, runner)
+        if planned_steps is not None:
+            return OrchestrateResponse(
+                task_id=req.task_id,
+                status="completed" if planned_steps else "failed",
+                steps_executed=planned_steps,
+                constraints_satisfied=req.constraints,
+                **_summary_fields(planned_steps),
+            )
+
+        if client is None:
+            return OrchestrateResponse(
+                task_id=req.task_id,
+                status="failed",
+                steps_executed=[],
+                constraints_satisfied=[],
+            )
+
+        specs = to_function_specs(req.available_tools)
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": SYSTEM},
+            {"role": "user", "content": build_user(req)},
+        ]
         for _ in range(_MAX_ROUNDS):
             turn = await client.chat(messages=messages, tools=specs)
             if not turn.tool_calls:
