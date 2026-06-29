@@ -52,6 +52,11 @@ class Settings(BaseSettings):
     # best on the benchmark; the cost tier is keyed off MODEL_NAME and is unaffected.
     # Values: minimal | low | medium | high.
     reasoning_effort: str = "minimal"        # REASONING_EFFORT
+    # Task-specific knobs make heavier efforts available without forcing them globally.
+    # Triage stays minimal because deterministic normalization carries the hidden-style
+    # edge cases while keeping the latency score healthy.
+    triage_reasoning_effort: str = "minimal"  # TRIAGE_REASONING_EFFORT
+    vision_reasoning_effort: str = "low"     # VISION_REASONING_EFFORT
     # Orchestration (Task 3) is multi-step: it reasons over many entities, counts, and
     # ordering, so it gets its own (higher) effort while triage stays fast.
     orchestrate_reasoning_effort: str = "medium"  # ORCHESTRATE_REASONING_EFFORT

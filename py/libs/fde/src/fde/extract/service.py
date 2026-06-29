@@ -47,6 +47,7 @@ _NULL_SENTINELS = frozenset(
 
 # Keys the scorer ignores; we always set document_id ourselves, so drop any from the model.
 _RESERVED_KEYS = frozenset({"document_id", "difficulty"})
+_MISSING = object()
 
 
 def _parse_schema(raw: str | None) -> dict[str, Any] | None:
@@ -73,6 +74,166 @@ def _nullify(value: Any) -> Any:
 
 def _clean(raw: dict[str, Any]) -> dict[str, Any]:
     return {k: _nullify(v) for k, v in raw.items() if k not in _RESERVED_KEYS}
+
+
+def _lookup_ref(root: dict[str, Any], ref: str) -> dict[str, Any] | None:
+    if not ref.startswith("#/"):
+        return None
+    cur: Any = root
+    for part in ref[2:].split("/"):
+        key = part.replace("~1", "/").replace("~0", "~")
+        if not isinstance(cur, dict) or key not in cur:
+            return None
+        cur = cur[key]
+    return cur if isinstance(cur, dict) else None
+
+
+def _resolve_schema(schema: Any, root: dict[str, Any], seen: frozenset[str] = frozenset()) -> dict[str, Any]:
+    if not isinstance(schema, dict):
+        return {}
+    ref = schema.get("$ref")
+    if isinstance(ref, str) and ref not in seen:
+        target = _lookup_ref(root, ref)
+        if target is not None:
+            overrides = {k: v for k, v in schema.items() if k != "$ref"}
+            return _resolve_schema({**target, **overrides}, root, seen | {ref})
+    return schema
+
+
+def _merge_all_of(schema: dict[str, Any], root: dict[str, Any]) -> dict[str, Any]:
+    parts = schema.get("allOf")
+    if not isinstance(parts, list):
+        return schema
+    merged = {k: v for k, v in schema.items() if k != "allOf"}
+    properties: dict[str, Any] = {}
+    required: list[str] = []
+    for part in parts:
+        resolved = _resolve_schema(part, root)
+        if isinstance(resolved.get("properties"), dict):
+            properties.update(resolved["properties"])
+        if isinstance(resolved.get("required"), list):
+            required.extend(str(k) for k in resolved["required"])
+        for key, value in resolved.items():
+            if key not in {"properties", "required"}:
+                merged.setdefault(key, value)
+    if properties:
+        properties.update(merged.get("properties", {}) if isinstance(merged.get("properties"), dict) else {})
+        merged["properties"] = properties
+    if required:
+        existing = merged.get("required", [])
+        required.extend(str(k) for k in existing if isinstance(k, str))
+        merged["required"] = list(dict.fromkeys(required))
+    return merged
+
+
+def _schema_types(schema: dict[str, Any]) -> set[str]:
+    raw = schema.get("type")
+    if isinstance(raw, str):
+        return {raw}
+    if isinstance(raw, list):
+        return {str(t) for t in raw if isinstance(t, str)}
+    if isinstance(schema.get("properties"), dict):
+        return {"object"}
+    if "items" in schema:
+        return {"array"}
+    return set()
+
+
+def _kind_matches(value: Any, schema: dict[str, Any]) -> bool:
+    types = _schema_types(schema)
+    if not types:
+        return True
+    if value is None:
+        return "null" in types
+    if isinstance(value, dict):
+        return "object" in types
+    if isinstance(value, list):
+        return "array" in types
+    if isinstance(value, bool):
+        return "boolean" in types
+    if isinstance(value, int | float):
+        return bool(types & {"number", "integer"})
+    if isinstance(value, str):
+        return "string" in types
+    return False
+
+
+def _select_variant(schema: dict[str, Any], value: Any, root: dict[str, Any]) -> dict[str, Any]:
+    for key in ("oneOf", "anyOf"):
+        variants = schema.get(key)
+        if not isinstance(variants, list):
+            continue
+        resolved = [_merge_all_of(_resolve_schema(v, root), root) for v in variants if isinstance(v, dict)]
+        if value is None and any("null" in _schema_types(v) for v in resolved):
+            return {"type": "null"}
+        for variant in resolved:
+            if "null" not in _schema_types(variant) and _kind_matches(value, variant):
+                return variant
+        for variant in resolved:
+            if "null" not in _schema_types(variant):
+                return variant
+    return schema
+
+
+def _schema_keys(schema: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    properties = schema.get("properties")
+    if isinstance(properties, dict):
+        keys.extend(str(k) for k in properties)
+    required = schema.get("required")
+    if isinstance(required, list):
+        keys.extend(str(k) for k in required if isinstance(k, str))
+    return list(dict.fromkeys(keys))
+
+
+def _extract_list(value: dict[str, Any]) -> list[Any] | None:
+    for key in ("items", "rows", "line_items", "entries", "records", "data", "values"):
+        candidate = value.get(key)
+        if isinstance(candidate, list):
+            return candidate
+    return None
+
+
+def _shape_to_schema(value: Any, schema: Any, root: dict[str, Any]) -> Any:
+    resolved = _merge_all_of(_resolve_schema(schema, root), root)
+    resolved = _select_variant(resolved, None if value is _MISSING else value, root)
+    value = None if value is _MISSING else _nullify(value)
+    types = _schema_types(resolved)
+
+    if value is None:
+        return None
+
+    if "object" in types:
+        if not isinstance(value, dict):
+            return None
+        properties = resolved.get("properties")
+        if not isinstance(properties, dict) or not properties:
+            return _clean(value)
+        shaped: dict[str, Any] = {}
+        for key in _schema_keys(resolved):
+            prop_schema = properties.get(key, {})
+            shaped[key] = _shape_to_schema(value.get(key, _MISSING), prop_schema, root)
+        return shaped
+
+    if "array" in types:
+        item_schema = resolved.get("items", {})
+        if isinstance(value, list):
+            return [_shape_to_schema(item, item_schema, root) for item in value]
+        if isinstance(value, dict):
+            nested = _extract_list(value)
+            if nested is not None:
+                return [_shape_to_schema(item, item_schema, root) for item in nested]
+            return [_shape_to_schema(value, item_schema, root)]
+        return None
+
+    return value
+
+
+def _shape(raw: dict[str, Any], schema: dict[str, Any] | None) -> dict[str, Any]:
+    if schema is None:
+        return _clean(raw)
+    shaped = _shape_to_schema(raw, schema, schema)
+    return _clean(shaped) if isinstance(shaped, dict) else {}
 
 
 def _image_ref(req: ExtractRequest) -> str | None:
@@ -132,7 +293,7 @@ async def extract(req: ExtractRequest, client: LLMClient | None) -> ExtractRespo
                     json_schema=None,
                 )
             if isinstance(raw, dict):
-                fields = _clean(raw)
+                fields = _shape(raw, schema)
         except Exception:  # noqa: BLE001 - any failure must degrade to the safe floor, never 500
             logger.exception("Extraction failed for %s; returning document_id only", req.document_id)
             fields = {}

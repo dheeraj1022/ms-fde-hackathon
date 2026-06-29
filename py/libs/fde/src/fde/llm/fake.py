@@ -47,8 +47,18 @@ class FakeLLMClient:
         response_model: type[T],
         deployment: str | None = None,
         temperature: float | None = None,
+        effort: str | None = None,
     ) -> T:
-        self.parse_calls.append({"system": system, "user": user, "response_model": response_model})
+        self.parse_calls.append(
+            {
+                "system": system,
+                "user": user,
+                "response_model": response_model,
+                "deployment": deployment,
+                "temperature": temperature,
+                "effort": effort,
+            }
+        )
         if self._parse_handler is None:
             msg = "FakeLLMClient.parse called without a parse_handler"
             raise NotImplementedError(msg)
@@ -63,8 +73,18 @@ class FakeLLMClient:
         image_b64: str,
         json_schema: dict[str, Any] | None = None,
         deployment: str | None = None,
+        effort: str | None = None,
     ) -> dict[str, Any]:
-        self.extract_calls.append({"system": system, "user": user, "json_schema": json_schema})
+        self.extract_calls.append(
+            {
+                "system": system,
+                "user": user,
+                "image_b64": image_b64,
+                "json_schema": json_schema,
+                "deployment": deployment,
+                "effort": effort,
+            }
+        )
         if self._extract_handler is None:
             return {}
         return self._extract_handler(system=system, user=user, image_b64=image_b64, json_schema=json_schema)

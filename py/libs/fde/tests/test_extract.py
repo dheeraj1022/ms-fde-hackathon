@@ -112,6 +112,88 @@ def test_image_url_payloads_are_passed_through() -> None:
     assert seen["image_b64"] == "https://example.test/doc.png"
 
 
+def test_schema_shaping_preserves_nested_keys_and_prunes_extras() -> None:
+    schema = """
+    {
+      "type": "object",
+      "required": ["invoice", "line_items"],
+      "properties": {
+        "invoice": {
+          "type": "object",
+          "required": ["number", "total"],
+          "properties": {
+            "number": {"type": "string"},
+            "total": {"type": ["string", "null"]}
+          }
+        },
+        "line_items": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["sku", "qty", "description"],
+            "properties": {
+              "sku": {"type": "string"},
+              "qty": {"type": "string"},
+              "description": {"type": ["string", "null"]}
+            }
+          }
+        }
+      }
+    }
+    """
+    client = FakeLLMClient(
+        extract_handler=lambda **_: {
+            "document_id": "WRONG",
+            "invoice": {"number": "INV-7", "extra": "drop me"},
+            "line_items": [{"sku": "A-1", "qty": "2", "ignored": "drop me"}],
+            "hallucinated": "drop me",
+        },
+    )
+
+    dumped = asyncio.run(extract(_req(json_schema=schema), client)).model_dump()
+
+    assert dumped == {
+        "document_id": "DOC-1",
+        "invoice": {"number": "INV-7", "total": None},
+        "line_items": [{"sku": "A-1", "qty": "2", "description": None}],
+    }
+
+
+def test_schema_shaping_adds_required_keys_not_declared_in_properties() -> None:
+    schema = '{"type":"object","required":["claim_id"],"properties":{"status":{"type":"string"}}}'
+    client = FakeLLMClient(extract_handler=lambda **_: {"status": "Open", "extra": "drop me"})
+
+    dumped = asyncio.run(extract(_req(json_schema=schema), client)).model_dump()
+
+    assert dumped == {"document_id": "DOC-1", "status": "Open", "claim_id": None}
+
+
+def test_schema_shaping_resolves_local_defs_and_singleton_arrays() -> None:
+    schema = """
+    {
+      "type": "object",
+      "$defs": {
+        "row": {
+          "type": "object",
+          "properties": {
+            "code": {"type": "string"},
+            "value": {"type": "string"}
+          },
+          "required": ["code", "value"]
+        }
+      },
+      "properties": {
+        "rows": {"type": "array", "items": {"$ref": "#/$defs/row"}}
+      }
+    }
+    """
+    client = FakeLLMClient(extract_handler=lambda **_: {"rows": {"code": "A", "extra": "drop me"}})
+
+    dumped = asyncio.run(extract(_req(json_schema=schema), client)).model_dump()
+
+    assert dumped == {"document_id": "DOC-1", "rows": [{"code": "A", "value": None}]}
+
+
 def test_build_user_embeds_schema() -> None:
     user = build_user({"type": "object", "properties": {"company": {"type": "string"}}})
     assert "SCHEMA:" in user

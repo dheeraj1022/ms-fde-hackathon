@@ -82,6 +82,7 @@ class LLMClient(Protocol):
         response_model: type[T],
         deployment: str | None = None,
         temperature: float | None = None,
+        effort: str | None = None,
     ) -> T: ...
 
     async def extract_json(
@@ -92,6 +93,7 @@ class LLMClient(Protocol):
         image_b64: str,
         json_schema: dict[str, Any] | None = None,
         deployment: str | None = None,
+        effort: str | None = None,
     ) -> dict[str, Any]: ...
 
     async def chat(
@@ -207,6 +209,7 @@ class AzureOpenAIClient:
         response_model: type[T],
         deployment: str | None = None,
         temperature: float | None = None,
+        effort: str | None = None,
     ) -> T:
         async def factory() -> Any:
             return await self._client.chat.completions.parse(
@@ -216,7 +219,7 @@ class AzureOpenAIClient:
                     {"role": "user", "content": user},
                 ],
                 response_format=response_model,
-                **self._sampling_kwargs(temperature),
+                **self._sampling_kwargs(temperature, effort_override=effort or self._s.triage_reasoning_effort),
             )
 
         completion = await self._run(factory)
@@ -234,6 +237,7 @@ class AzureOpenAIClient:
         image_b64: str,
         json_schema: dict[str, Any] | None = None,
         deployment: str | None = None,
+        effort: str | None = None,
     ) -> dict[str, Any]:
         image_url = (
             image_b64
@@ -270,7 +274,7 @@ class AzureOpenAIClient:
                 model=deployment or self._s.vision_deployment,
                 messages=messages,
                 response_format=cast(ResponseFormat, response_format),
-                **self._sampling_kwargs(),
+                **self._sampling_kwargs(effort_override=effort or self._s.vision_reasoning_effort),
             )
 
         completion = await self._run(factory)

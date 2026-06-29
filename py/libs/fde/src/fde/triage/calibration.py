@@ -14,6 +14,227 @@ from fde.contracts import MissingInfo
 from fde.contracts import Team
 from fde.contracts import TriageRequest
 from fde.contracts import TriageResponse
+from fde.triage.knowledge import CATEGORY_TO_TEAM
+
+_PRIORITY_RANK: dict[str, int] = {"P1": 1, "P2": 2, "P3": 3, "P4": 4}
+
+_FAILURE_MARKERS = (
+    "fail",
+    "failure",
+    "failing",
+    "down",
+    "offline",
+    "broken",
+    "cannot",
+    "can't",
+    "unable",
+    "error",
+    "alarm",
+    "anomaly",
+    "degraded",
+    "slow",
+    "timeout",
+    "dropping",
+    "intermittent",
+    "blocked",
+    "denied",
+    "lost",
+    "critical",
+    "stuck",
+    "overheat",
+    "leak",
+)
+
+_WIDE_SCOPE_MARKERS = (
+    "entire vessel",
+    "all crew",
+    "all decks",
+    "ship-wide",
+    "station-wide",
+    "entire ship",
+    "everyone",
+    "no one can",
+    "all users",
+)
+
+_THREAT_MARKERS = (
+    "hostile",
+    "boarding",
+    "intrusion",
+    "intruder",
+    "malware",
+    "phishing",
+    "spoof",
+    "impersonat",
+    "voice-clon",
+    "deepfake",
+    "credential theft",
+    "stealing credentials",
+    "exfiltrat",
+    "unauthorized access",
+    "suspicious access",
+    "lateral movement",
+    "certificate",
+    "surveillance",
+    "monitor crew",
+)
+
+_ACCESS_MARKERS = (
+    "biometric",
+    "badge",
+    "mfa",
+    "sso",
+    "login",
+    "log in",
+    "authenticate",
+    "authentication",
+    "access denied",
+    "credential",
+    "directory sync",
+    "keycard",
+    "airlock access",
+)
+
+_HULL_MARKERS = (
+    "hull",
+    "pressure",
+    "atmospher",
+    "seal",
+    "bulkhead",
+    "airlock door",
+    "terminal",
+    "workstation",
+    "console",
+    "display",
+    "scanner",
+    "projector",
+    "printer",
+    "fan",
+    "camera",
+    "fabricator",
+    "cradle",
+    "panel",
+    "hardware",
+    "wrist-comm",
+)
+
+_COMMS_MARKERS = (
+    "subspace",
+    "relay",
+    "antenna",
+    "comms",
+    "beacon",
+    "dns",
+    "routing",
+    "uplink",
+    "downlink",
+    "mesh",
+    "transponder",
+    "navigation",
+)
+
+_DATA_MARKERS = (
+    "telemetry",
+    "archive",
+    "backup",
+    "storage",
+    "data core",
+    "data bank",
+    "pipeline",
+    "data feed",
+    "dashboard",
+    "retention",
+    "report",
+)
+
+_SOFTWARE_MARKERS = (
+    "software",
+    "shipos",
+    "firmware",
+    "app",
+    "portal",
+    "license",
+    "licence",
+    "crash",
+    "bug",
+    "calibration",
+    "instrument",
+    "integration",
+    "deploy",
+    "date-picker",
+)
+
+_REQUEST_MARKERS = (
+    "how do i",
+    "how to",
+    "can i",
+    "may i",
+    "please advise",
+    "where can",
+    "requesting",
+    "request ",
+    "book ",
+    "reserve ",
+    "approved",
+    "policy",
+    "inventory",
+    "list of",
+)
+
+_BROAD_ACTIONS: dict[Category, tuple[str, list[str]]] = {
+    Category.ACCESS: (
+        "Route the access/authentication signal to identity operations and confirm the affected credential path.",
+        [
+            "Identify the affected user group and authentication method",
+            "Check identity, badge, MFA, and airlock-control logs for the reported failure",
+            "Provide a temporary verified access path if mission work is blocked",
+        ],
+    ),
+    Category.HULL: (
+        "Route the hardware/structural signal to spacecraft systems engineering for physical inspection.",
+        [
+            "Identify the affected module, device, or structural section",
+            "Collect device or habitat telemetry and any visible alarm/readout",
+            "Dispatch systems engineering if safety, access, or mission work is affected",
+        ],
+    ),
+    Category.COMMS: (
+        "Route the connectivity/navigation signal to deep-space communications for link-path diagnosis.",
+        [
+            "Identify the affected relay, beacon, sector, or navigation path",
+            "Check link health, routing, DNS/beacon state, and recent failover events",
+            "Apply failover or reroute traffic if the link is mission-impacting",
+        ],
+    ),
+    Category.SOFTWARE: (
+        "Route the application/instrument defect to mission software operations for reproduction and fix.",
+        [
+            "Capture the affected application, workflow, and exact error or wrong output",
+            "Reproduce the issue on the reported build or rollback candidate",
+            "Patch, configure, or roll back the component based on impact",
+        ],
+    ),
+    Category.THREAT: (
+        "Route the security signal to Threat Response Command for containment and evidence preservation.",
+        [
+            "Preserve the message, logs, and requester or source metadata",
+            "Contain affected accounts, hosts, or channels if compromise is plausible",
+            "Investigate for intrusion, impersonation, spoofing, or policy abuse",
+        ],
+    ),
+    Category.DATA: (
+        "Route the telemetry/data-bank signal to Telemetry & Data Core for integrity and pipeline checks.",
+        [
+            "Identify the affected data source, store, report, or pipeline",
+            "Check ingestion, retention, backup, and integrity status",
+            "Repair the stalled feed or data-store issue and verify downstream consumers",
+        ],
+    ),
+    Category.BRIEFING: (
+        "Handle as a mission briefing/request unless new incident evidence appears.",
+        ["Answer the request or route to the owner", "Do not escalate without a real operational failure"],
+    ),
+}
 
 
 def _text(req: TriageRequest) -> str:
@@ -22,6 +243,159 @@ def _text(req: TriageRequest) -> str:
 
 def _has_any(text: str, phrases: Iterable[str]) -> bool:
     return any(phrase in text for phrase in phrases)
+
+
+def _more_severe(a: str, b: str) -> str:
+    return a if _PRIORITY_RANK.get(a, 3) <= _PRIORITY_RANK.get(b, 3) else b
+
+
+def _is_failure(text: str) -> bool:
+    return _has_any(text, _FAILURE_MARKERS)
+
+
+def _wide_scope(text: str) -> bool:
+    return _has_any(text, _WIDE_SCOPE_MARKERS) or bool(re.search(r"\b(?:\d{3,}|\d+\s*%)\s+(?:crew|users)\b", text))
+
+
+def _strong_category(text: str, hard_triggers: list[str]) -> Category | None:
+    if hard_triggers:
+        if any(label in hard_triggers for label in ("restricted-zone access", "containment breach")):
+            return Category.THREAT
+        return Category.HULL
+    if _has_any(text, _THREAT_MARKERS):
+        return Category.THREAT
+    if _has_any(text, _ACCESS_MARKERS) and (_is_failure(text) or _has_any(text, ("provision", "offboard", "onboard"))):
+        return Category.ACCESS
+    if _has_any(text, _COMMS_MARKERS) and (_is_failure(text) or _has_any(text, ("route", "signal", "navigation"))):
+        return Category.COMMS
+    if _has_any(text, _DATA_MARKERS) and (
+        _is_failure(text) or _has_any(text, ("integrity", "mismatch", "missing", "capacity"))
+    ):
+        return Category.DATA
+    if _has_any(text, _HULL_MARKERS) and (_is_failure(text) or not _has_any(text, _SOFTWARE_MARKERS)):
+        return Category.HULL
+    if _has_any(text, _SOFTWARE_MARKERS) and (_is_failure(text) or _has_any(text, ("renew", "configure", "install"))):
+        return Category.SOFTWARE
+    if _has_any(text, _REQUEST_MARKERS) and not _is_failure(text):
+        return Category.BRIEFING
+    return None
+
+
+def _priority_floor(category: Category, text: str, hard_triggers: list[str]) -> str | None:
+    if hard_triggers or (_wide_scope(text) and _is_failure(text)):
+        return "P1"
+    if category == Category.THREAT and _has_any(text, _THREAT_MARKERS):
+        return "P2"
+    if _has_any(text, ("critical", "red alert", "unsafe", "no workaround", "mission blocked", "blocking mission")):
+        return "P2"
+    if category in (Category.HULL, Category.SOFTWARE, Category.COMMS, Category.DATA) and _has_any(
+        text,
+        (
+            "life support",
+            "flight",
+            "navigation",
+            "airlock",
+            "structural",
+            "pressure",
+            "data loss",
+            "backup failed",
+        ),
+    ):
+        return "P2"
+    return None
+
+
+def _looks_like_method_present(text: str) -> bool:
+    return _has_any(text, ("badge", "pin", "mfa", "sso", "iris", "retina", "palm", "voice", "face", "facial"))
+
+
+def _looks_like_location_present(text: str) -> bool:
+    return bool(re.search(r"\b(?:deck|bay|sector|module|ring|zone|grid|vlan|subnet)\s*[-\w]*\b", text))
+
+
+def _generic_missing(category: Category, text: str) -> list[MissingInfo]:
+    missing: list[MissingInfo] = []
+    if category == Category.HULL and _has_any(text, _HULL_MARKERS):
+        missing.append(MissingInfo.MODULE_SPECS)
+        if _is_failure(text) and not _has_any(text, ("error", "alarm", "readout", "code", "log", "screenshot")):
+            missing.append(MissingInfo.ANOMALY_READOUT)
+    elif category == Category.SOFTWARE:
+        if not _has_any(text, ("after ", "when ", "steps", "reproduce", "click", "opening", "during")):
+            missing.append(MissingInfo.SEQUENCE_TO_REPRODUCE)
+        if _is_failure(text) and not _has_any(text, ("error", "exception", "code", "stack", "log", "screenshot")):
+            missing.append(MissingInfo.ANOMALY_READOUT)
+    elif category == Category.COMMS:
+        if not _looks_like_location_present(text):
+            missing.append(MissingInfo.SECTOR_COORDINATES)
+        if _is_failure(text) and not _has_any(text, ("error", "timeout", "alarm", "readout", "log")):
+            missing.append(MissingInfo.ANOMALY_READOUT)
+    elif category == Category.ACCESS and not _looks_like_method_present(text):
+        missing.append(MissingInfo.BIOMETRIC_METHOD)
+    elif category == Category.DATA and _is_failure(text) and not _has_any(text, ("error", "metric", "percent", "log")):
+        missing.append(MissingInfo.ANOMALY_READOUT)
+    return missing[:2]
+
+
+def _broad_signal_normalization(
+    req: TriageRequest,
+    base: TriageResponse,
+    *,
+    hard_triggers: list[str],
+) -> TriageResponse:
+    text = _text(req)
+    target = _strong_category(text, hard_triggers)
+    if target is None:
+        return base
+
+    category_changed = target != base.category
+    should_override_category = (
+        bool(hard_triggers)
+        or base.category in (Category.NOT_SIGNAL, Category.BRIEFING)
+        or target == Category.THREAT
+        or (base.category == Category.SOFTWARE and target == Category.HULL)
+        or (category_changed and _wide_scope(text))
+    )
+    category = target if should_override_category else base.category
+    team = CATEGORY_TO_TEAM.get(category, base.assigned_team)
+    priority = base.priority
+    floor = _priority_floor(category, text, hard_triggers)
+    if floor is not None:
+        priority = _more_severe(priority, floor)
+    elif should_override_category and category not in (Category.NOT_SIGNAL, Category.BRIEFING) and _is_failure(text):
+        priority = _more_severe(priority, "P3")
+    if category in (Category.NOT_SIGNAL, Category.BRIEFING) and not hard_triggers:
+        priority = "P4"
+
+    escalation = base.needs_escalation or bool(hard_triggers) or (
+        _wide_scope(text) and _is_failure(text) and category not in (Category.NOT_SIGNAL, Category.BRIEFING)
+    )
+    if category == Category.THREAT and _has_any(
+        text,
+        ("hostile", "boarding", "intrusion", "malware", "spoof", "surveillance"),
+    ):
+        escalation = True
+
+    missing = list(base.missing_information)
+    for item in _generic_missing(category, text):
+        if item not in missing:
+            missing.append(item)
+
+    action = base.next_best_action
+    steps = base.remediation_steps
+    if should_override_category and category in _BROAD_ACTIONS:
+        action, steps = _BROAD_ACTIONS[category]
+
+    return base.model_copy(
+        update={
+            "category": category,
+            "priority": priority,
+            "assigned_team": team,
+            "needs_escalation": escalation,
+            "missing_information": missing,
+            "next_best_action": action,
+            "remediation_steps": steps,
+        }
+    )
 
 
 def _replace(
@@ -489,6 +863,8 @@ def apply_signal_pattern_calibration(
                 "Issue a temporary access method after identity verification",
             ],
         )
+
+    base = _broad_signal_normalization(req, base, hard_triggers=hard_triggers)
 
     if (
         not hard_triggers

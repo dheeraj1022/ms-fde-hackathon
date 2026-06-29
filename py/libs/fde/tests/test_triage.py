@@ -345,6 +345,51 @@ def test_service_prunes_low_confidence_missing_padding() -> None:
     assert out.missing_information == [MissingInfo.MODULE_SPECS]
 
 
+def test_service_recovers_category_when_model_treats_real_failure_as_briefing() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.BRIEFING, priority="P4", team=Team.NONE, escalation=False, missing=[])
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Quiet auth note",
+        description="Authentication is failing across the entire vessel; nobody can log in.",
+    )
+    out = asyncio.run(triage(req, client))
+    assert out.category == Category.ACCESS
+    assert out.assigned_team == Team.IDENTITY
+    assert out.priority == "P1"
+    assert out.needs_escalation is True
+
+
+def test_service_recovers_data_failure_when_model_says_not_signal() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.NOT_SIGNAL, priority="P4", team=Team.NONE, escalation=False, missing=[])
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Backup pipeline issue",
+        description="Telemetry archive backup pipeline is failing and the dashboard shows stale report data.",
+    )
+    out = asyncio.run(triage(req, client))
+    assert out.category == Category.DATA
+    assert out.assigned_team == Team.TELEMETRY
+    assert out.priority in {"P2", "P3"}
+    assert MissingInfo.ANOMALY_READOUT in out.missing_information
+
+
+def test_service_recovers_hard_trigger_category_when_model_says_noise() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.NOT_SIGNAL, priority="P4", team=Team.NONE, escalation=False, missing=[])
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(subject="calm update", description="Hull breach on deck 7; crew is moving quietly.")
+    out = asyncio.run(triage(req, client))
+    assert out.category == Category.HULL
+    assert out.assigned_team == Team.SYSTEMS
+    assert out.priority == "P1"
+    assert out.needs_escalation is True
+
+
 # --- prompt sanity ------------------------------------------------------------
 
 

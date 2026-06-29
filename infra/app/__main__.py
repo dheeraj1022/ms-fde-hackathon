@@ -38,6 +38,8 @@ aoai_deployment = config.get("aoaiDeployment") or "gpt-5.4-mini"
 aoai_vision_deployment = config.get("aoaiVisionDeployment") or aoai_deployment
 model_name = config.get("modelName") or aoai_deployment
 reasoning_effort = config.get("reasoningEffort") or "minimal"
+triage_reasoning_effort = config.get("triageReasoningEffort") or "minimal"
+vision_reasoning_effort = config.get("visionReasoningEffort") or "low"
 orchestrate_reasoning_effort = config.get("orchestrateReasoningEffort") or "medium"
 vision_detail = config.get("visionDetail") or "high"
 
@@ -175,6 +177,8 @@ container_app = app.ContainerApp(
                     app.EnvironmentVarArgs(name="AOAI_VISION_DEPLOYMENT", value=aoai_vision_deployment),
                     app.EnvironmentVarArgs(name="MODEL_NAME", value=model_name),
                     app.EnvironmentVarArgs(name="REASONING_EFFORT", value=reasoning_effort),
+                    app.EnvironmentVarArgs(name="TRIAGE_REASONING_EFFORT", value=triage_reasoning_effort),
+                    app.EnvironmentVarArgs(name="VISION_REASONING_EFFORT", value=vision_reasoning_effort),
                     app.EnvironmentVarArgs(
                         name="ORCHESTRATE_REASONING_EFFORT",
                         value=orchestrate_reasoning_effort,
