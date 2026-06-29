@@ -344,7 +344,7 @@ components:
       description: The model actually used to produce this response (read by the platform for cost scoring).
       schema:
         type: string
-        example: gpt-4.1-mini
+        example: gpt-5.4-mini
     X-Latency-Ms:
       description: Server-side processing time for this request, in milliseconds.
       schema:

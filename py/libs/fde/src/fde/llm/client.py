@@ -20,7 +20,11 @@ from dataclasses import field
 from typing import Any
 from typing import Protocol
 from typing import TypeVar
+from typing import cast
 from typing import runtime_checkable
+
+from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat.completion_create_params import ResponseFormat
 
 from ms.common.models.base import FrozenBaseModel
 
@@ -250,13 +254,17 @@ class AzureOpenAIClient:
             response_format = {"type": "json_object"}
 
         async def factory() -> Any:
-            return await self._client.chat.completions.create(
-                model=deployment or self._s.vision_deployment,
-                messages=[
+            messages = cast(
+                list[ChatCompletionMessageParam],
+                [
                     {"role": "system", "content": system},
                     {"role": "user", "content": content},
                 ],
-                response_format=response_format,
+            )
+            return await self._client.chat.completions.create(
+                model=deployment or self._s.vision_deployment,
+                messages=messages,
+                response_format=cast(ResponseFormat, response_format),
                 **self._sampling_kwargs(),
             )
 

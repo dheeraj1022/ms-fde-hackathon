@@ -16,6 +16,29 @@ You're deploying an API that solves three business problems, scored by [FDEBench
 
 Each task comes from a real customer engagement: noisy inputs, messy documents, multi-step workflows with constraints. Your solution needs to actually work, not just pass tests. FDEBench scores it on accuracy, latency, cost, resilience, and code quality. Judges read your repo too.
 
+## Submission snapshot
+
+Live HTTPS endpoint:
+`https://fde-triage-api.delightfulsea-2b971cea.eastus.azurecontainerapps.io`
+
+Current deployed image: `fdehackdyh8j.azurecr.io/fde-triage:v9`. The service
+runs all three FDEBench tasks on one FastAPI app, uses Azure OpenAI
+`gpt-5.4-mini` for triage/extraction fallback judgment, and uses a deterministic
+template planner for the generated orchestration workflows.
+
+| Task | Endpoint | Latest public-50 Tier 1 |
+|------|----------|-------------------------|
+| Signal Triage | `POST /triage` | **84.3** |
+| Document Extraction | `POST /extract` | **86.4** |
+| Workflow Orchestration | `POST /orchestrate` | **98.1** |
+| **Composite** | — | **~89.6** |
+
+Submission docs:
+[Architecture](docs/architecture.md) ·
+[Methodology](docs/methodology.md) ·
+[Evaluation results](docs/evals.md) ·
+[Infrastructure](infra/README.md)
+
 | Task | Endpoint | What you're solving |
 |------|----------|---------------------|
 | Signal Triage | `POST /triage` | Classify and route noisy mission signals |
@@ -40,7 +63,7 @@ You can also score individual tasks: `make eval-triage`, `make eval-extract`, `m
 
 The local scorer gives you a full FDEBench breakdown: resolution, efficiency, robustness, probes.
 
-When you're ready, see [docs/submission/](docs/submission/) for the submission checklist and submit at [aka.ms/fde/hackathon](https://aka.ms/fde/hackaton).
+When you're ready, see [docs/submission/](docs/submission/) for the submission checklist and submit at [aka.ms/fde/hackathon](https://aka.ms/fde/hackathon).
 
 ## Repository structure
 
@@ -134,7 +157,7 @@ Full scoring details: [docs/challenge/README.md](docs/challenge/README.md).
 - Deployed via HTTPS, handles 10+ concurrent requests, responds in under 30s.
 - Public GitHub repository with a README explaining how to install, run, and test.
 
-See [docs/submission/](docs/submission/) for the full checklist, then submit at [aka.ms/fde/hackathon](https://aka.ms/fde/hackaton).
+See [docs/submission/](docs/submission/) for the full checklist, then submit at [aka.ms/fde/hackathon](https://aka.ms/fde/hackathon).
 
 ## License
 

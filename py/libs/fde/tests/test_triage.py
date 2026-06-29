@@ -2,9 +2,11 @@
 and the service's LLM / fallback paths (via FakeLLMClient, no network)."""
 
 import asyncio
+from typing import Literal
 
 from fde.contracts import Category
 from fde.contracts import MissingInfo
+from fde.contracts import Reporter
 from fde.contracts import Team
 from fde.contracts import TriageRequest
 from fde.contracts import TriageResponse
@@ -22,7 +24,7 @@ def _req(subject: str = "", description: str = "", ticket_id: str = "T1") -> Tri
         ticket_id=ticket_id,
         subject=subject,
         description=description,
-        reporter={"name": "Officer", "email": "officer@station.gov", "department": "Ops"},
+        reporter=Reporter(name="Officer", email="officer@station.gov", department="Ops"),
         created_at="2401-01-01T00:00:00Z",
         channel="bridge_terminal",
         attachments=[],
@@ -32,7 +34,7 @@ def _req(subject: str = "", description: str = "", ticket_id: str = "T1") -> Tri
 def _resp(
     *,
     category: Category = Category.SOFTWARE,
-    priority: str = "P3",
+    priority: Literal["P1", "P2", "P3", "P4"] = "P3",
     team: Team = Team.SOFTWARE,
     escalation: bool = False,
     ticket_id: str = "T1",
@@ -41,7 +43,7 @@ def _resp(
     return TriageResponse(
         ticket_id=ticket_id,
         category=category,
-        priority=priority,  # type: ignore[arg-type]
+        priority=priority,
         assigned_team=team,
         needs_escalation=escalation,
         missing_information=missing or [],

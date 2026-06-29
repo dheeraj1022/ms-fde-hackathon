@@ -8,7 +8,7 @@
 4. **Test** with the eval harness: run `python run_eval.py --endpoint http://localhost:8000` from `py/apps/eval/`
 5. **Write** your three docs: `docs/architecture.md`, `docs/methodology.md`, `docs/evals.md`
 6. **Push** everything to your public fork
-7. **Submit** at **[aka.ms/fde/hackathon](https://aka.ms/fde/hackaton)**
+7. **Submit** at **[aka.ms/fde/hackathon](https://aka.ms/fde/hackathon)**
 
 Think of submission like a deployment rollout: can the endpoints be called reliably, is the code legible, do the docs show you understood the problem?
 
@@ -124,4 +124,4 @@ If you use the local runner at `py/apps/eval/run_eval.py` to gather your numbers
 - [ ] `docs/evals.md` exists and includes actual numbers
 - [ ] Repo is **public** on GitHub
 - [ ] README explains how to install, run, and test locally
-- [ ] Submitted at **[aka.ms/fde/hackathon](https://aka.ms/fde/hackaton)**
+- [ ] Submitted at **[aka.ms/fde/hackathon](https://aka.ms/fde/hackathon)**
