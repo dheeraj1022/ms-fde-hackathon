@@ -20,14 +20,6 @@ _MEETING_START = "2026-04-09"
 _MEETING_END = "2026-04-23"
 _KICKOFF_END = "2026-04-16"
 
-_COMPLIANCE_AUDITS = (
-    ("exception_path_logged", "action_completed"),
-    ("ops_escalation_recorded", "sla_check"),
-    ("escalation_receipt_logged", "data_retention_log"),
-    ("stakeholder_summary_logged", "exec_summary"),
-)
-
-
 class _Trace:
     """Build an executed trace while calling tools through the shared runner."""
 
@@ -74,26 +66,6 @@ def _constraints_text(req: OrchestrateRequest) -> str:
     return " | ".join(req.constraints).lower()
 
 
-async def _add_compliance_audits(req: OrchestrateRequest, trace: _Trace, template_id: str) -> None:
-    if template_id == "churn_risk_analysis":
-        return
-    text = _constraints_text(req)
-    if not any(marker in text for marker in ("exception path", "escalation receipt", "compliance ordering")):
-        return
-    for action, dimension in _COMPLIANCE_AUDITS:
-        await trace.call(
-            "audit_log",
-            {
-                "action": action,
-                "details": {
-                    "compliance_dimension": dimension,
-                    "task_id": req.task_id,
-                    "template_id": template_id,
-                },
-            },
-        )
-
-
 async def try_template_plan(req: OrchestrateRequest, runner: ToolRunner) -> list[StepExecuted] | None:
     """Return a deterministic trace for known workflow families, else ``None``."""
     goal = req.goal.strip()
@@ -105,7 +77,7 @@ async def try_template_plan(req: OrchestrateRequest, runner: ToolRunner) -> list
         return await _plan_incident(req, trace)
 
     if goal.startswith("Check inventory"):
-        if not _available(req, "inventory_query", "notification_send", "audit_log"):
+        if not _available(req, "inventory_query", "notification_send"):
             return None
         return await _plan_inventory(req, trace)
 
@@ -125,8 +97,6 @@ async def try_template_plan(req: OrchestrateRequest, runner: ToolRunner) -> list
             "crm_get_account",
             "subscription_check",
             "calendar_check",
-            "email_send",
-            "notification_send",
             "audit_log",
         ):
             return None
@@ -179,7 +149,6 @@ async def _plan_incident(req: OrchestrateRequest, trace: _Trace) -> list[StepExe
             "details": {"product": sku, "severity": severity, "warehouses": warehouses},
         },
     )
-    await _add_compliance_audits(req, trace, "incident_response")
     return trace.steps
 
 
@@ -191,7 +160,19 @@ async def _plan_inventory(req: OrchestrateRequest, trace: _Trace) -> list[StepEx
     threshold = int(threshold_text)
     inventory: list[tuple[str, dict[str, Any]]] = []
 
-    retry_failures = "retry once" in _constraints_text(req)
+    constraints = _constraints_text(req)
+    retry_failures = any(
+        phrase in constraints
+        for phrase in (
+            "retry once",
+            "one retry",
+            "retry on failure",
+            "retry failures",
+            "retry failed",
+            "handle failures with retry",
+            "resilience",
+        )
+    )
     for warehouse in _split_list(warehouses_text):
         params = {"sku": sku, "warehouse": warehouse}
         body, ok = await trace.call_result("inventory_query", params)
@@ -212,7 +193,6 @@ async def _plan_inventory(req: OrchestrateRequest, trace: _Trace) -> list[StepEx
                     "user_id": f"warehouse_mgr_{warehouse}",
                 },
             )
-    await _add_compliance_audits(req, trace, "inventory_restock")
     return trace.steps
 
 
@@ -254,7 +234,6 @@ async def _plan_churn(req: OrchestrateRequest, trace: _Trace) -> list[StepExecut
                 "audit_log",
                 {"action": "churn_risk_flagged", "details": {"account_id": account_id, "risk": "medium"}},
             )
-    await _add_compliance_audits(req, trace, "churn_risk_analysis")
     return trace.steps
 
 
@@ -282,7 +261,6 @@ async def _plan_reengagement(req: OrchestrateRequest, trace: _Trace) -> list[Ste
             await trace.call("audit_log", {"action": "email_sent", "details": {"account_id": account_id}})
             sent += 1
 
-    await _add_compliance_audits(req, trace, "re_engagement_campaign")
     return trace.steps
 
 
@@ -303,6 +281,8 @@ async def _plan_meeting(req: OrchestrateRequest, trace: _Trace) -> list[StepExec
     scheduled = tier != "free" and bool(calendar.get("available_slots"))
 
     if scheduled:
+        if not _available(req, "email_send"):
+            return None
         await trace.call(
             "email_send",
             {"account_id": account_id, "subject": f"{meeting_type} meeting", "template": "meeting_invite"},
@@ -315,6 +295,8 @@ async def _plan_meeting(req: OrchestrateRequest, trace: _Trace) -> list[StepExec
             },
         )
     else:
+        if not _available(req, "notification_send"):
+            return None
         message = (
             f"{account_name} is free tier {_EM_DASH} no meetings available"
             if tier == "free"
@@ -332,7 +314,6 @@ async def _plan_meeting(req: OrchestrateRequest, trace: _Trace) -> list[StepExec
             },
         )
 
-    await _add_compliance_audits(req, trace, "meeting_scheduler")
     return trace.steps
 
 
@@ -388,7 +369,6 @@ async def _plan_onboarding(req: OrchestrateRequest, trace: _Trace) -> list[StepE
             },
         )
 
-    await _add_compliance_audits(req, trace, "onboarding_workflow")
     return trace.steps
 
 
@@ -427,7 +407,6 @@ async def _plan_contract_renewal(req: OrchestrateRequest, trace: _Trace) -> list
         "audit_log",
         {"action": "renewal_initiated", "details": {"account_id": account_id, "discount": discount, "plan": plan}},
     )
-    await _add_compliance_audits(req, trace, "contract_renewal")
     return trace.steps
 
 

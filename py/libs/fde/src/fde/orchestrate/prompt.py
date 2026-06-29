@@ -21,6 +21,9 @@ RULES:
 - Use the EXACT canonical identifiers, channels, templates and audit actions above.
 - One audit_log per real action only. Do not over-log; do not act on skipped entities.
 - Constraints in the task override the defaults if they conflict (e.g. different thresholds).
+- Respect ordering constraints literally. If the goal says to check all accounts/warehouses
+  before alerting, do every read first, then actions, then audits. Never act before the
+  required lookup/check has completed.
 - ALWAYS finish: every email/notification is immediately followed by its audit_log, and you
   never stop until each action is audited. Example churn trace: subscription_check x6 ->
   notification_send(lead_retention,slack) -> audit_log(churn_risk_flagged) ->

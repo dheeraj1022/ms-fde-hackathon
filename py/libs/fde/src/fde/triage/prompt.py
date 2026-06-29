@@ -90,7 +90,7 @@ or already-complete reports. Choose labels that match the issue TYPE rather than
 - Connectivity / comms problem -> often sector_coordinates and/or anomaly_readout.
 - Telemetry / environmental / sensor issue -> often habitat_conditions.
 - Access / auth problem -> biometric_method, plus module_specs if a new device is involved.
-- A cited-but-unreferenced prior incident -> previous_signal_id.
+- A cited-but-unreferenced prior incident or "same issue again" follow-up -> previous_signal_id.
 Prefer module_specs over software_version for physical devices. Do NOT add software_version, \
 system_configuration, mission_impact, stardate, or sector_coordinates by default — only when that specific \
 gap is clearly central. Never flag something already stated or reasonably inferable. Emitting a wrong label \

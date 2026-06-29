@@ -75,18 +75,21 @@ def _clean(raw: dict[str, Any]) -> dict[str, Any]:
     return {k: _nullify(v) for k, v in raw.items() if k not in _RESERVED_KEYS}
 
 
-def _image_b64(req: ExtractRequest) -> str | None:
-    """Return base64 image bytes for the request, or None if unavailable.
+def _image_ref(req: ExtractRequest) -> str | None:
+    """Return an image reference for the model, or None if unavailable.
 
     The production contract sends ``image_base64`` (the platform inlines the perturbed
-    image bytes before POSTing). ``image_path`` is a local-dev convenience only; a deployed
+    image bytes before POSTing). Hidden evals may use other formats, so URL/data-URL
+    payloads are passed through. ``image_path`` is a local-dev convenience only; a deployed
     endpoint cannot read the caller's filesystem, so it is handled best-effort.
     """
     content = req.content or ""
     if not content:
         return None
     fmt = (req.content_format or "image_base64").strip().lower()
-    if fmt in ("image_base64", ""):
+    if fmt in ("image_base64", "base64", ""):
+        return content
+    if fmt in ("image_url", "url", "data_url") or content.startswith(("http://", "https://", "data:")):
         return content
     if fmt == "image_path":
         try:
@@ -102,17 +105,32 @@ def _image_b64(req: ExtractRequest) -> str | None:
 async def extract(req: ExtractRequest, client: LLMClient | None) -> ExtractResponse:
     """Extract structured fields from a document image per its request-provided schema."""
     schema = _parse_schema(req.json_schema)
-    image_b64 = _image_b64(req)
+    image_ref = _image_ref(req)
     fields: dict[str, Any] = {}
 
-    if client is not None and image_b64:
+    if client is not None and image_ref:
         try:
-            raw = await client.extract_json(
-                system=SYSTEM,
-                user=build_user(schema),
-                image_b64=image_b64,
-                json_schema=None,  # JSON-object mode + schema in prompt: robust to arbitrary schemas
-            )
+            try:
+                raw = await client.extract_json(
+                    system=SYSTEM,
+                    user=build_user(schema),
+                    image_b64=image_ref,
+                    json_schema=schema,
+                )
+            except Exception:
+                if schema is None:
+                    raise
+                logger.warning(
+                    "Schema-constrained extraction failed for %s; retrying JSON-object mode",
+                    req.document_id,
+                    exc_info=True,
+                )
+                raw = await client.extract_json(
+                    system=SYSTEM,
+                    user=build_user(schema),
+                    image_b64=image_ref,
+                    json_schema=None,
+                )
             if isinstance(raw, dict):
                 fields = _clean(raw)
         except Exception:  # noqa: BLE001 - any failure must degrade to the safe floor, never 500

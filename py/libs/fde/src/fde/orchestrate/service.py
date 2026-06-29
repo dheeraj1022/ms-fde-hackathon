@@ -27,7 +27,7 @@ from fde.orchestrate.tools import to_function_specs
 logger = logging.getLogger(__name__)
 
 _MAX_ROUNDS = 12  # planning turns; complex churn/incident traces fit in well under this
-_MAX_STEPS = 40   # hard cap on recorded tool calls (runaway guard)
+_MAX_STEPS = 60   # hard cap on recorded tool calls (runaway guard for hidden long workflows)
 
 
 def _assistant_msg(turn: Any) -> dict[str, Any]:

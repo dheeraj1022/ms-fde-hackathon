@@ -235,12 +235,17 @@ class AzureOpenAIClient:
         json_schema: dict[str, Any] | None = None,
         deployment: str | None = None,
     ) -> dict[str, Any]:
+        image_url = (
+            image_b64
+            if image_b64.startswith(("http://", "https://", "data:"))
+            else f"data:image/png;base64,{image_b64}"
+        )
         content: list[dict[str, Any]] = [
             {"type": "text", "text": user},
             {
                 "type": "image_url",
                 "image_url": {
-                    "url": f"data:image/png;base64,{image_b64}",
+                    "url": image_url,
                     "detail": self._s.vision_detail,
                 },
             },

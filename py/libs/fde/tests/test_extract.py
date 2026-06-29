@@ -36,6 +36,15 @@ def test_returns_fields_and_enforces_document_id() -> None:
     assert dumped["document_id"] == "DOC-1"  # our id wins, never the model's
     assert dumped["company"] == "CLEARPOINT"
     assert dumped["phone"] == "+1-652-712-8471"
+    assert client.extract_calls[0]["json_schema"] == {
+        "type": "object",
+        "properties": {
+            "company": {"type": "string"},
+            "phone": {"type": "string"},
+            "signedDate": {"type": "string"},
+            "rows": {"type": "array"},
+        },
+    }
 
 
 def test_null_sentinels_coerced_to_none() -> None:
@@ -68,6 +77,39 @@ def test_model_failure_degrades_to_safe_floor() -> None:
     dumped = asyncio.run(extract(_req(), client)).model_dump()
     assert dumped["document_id"] == "DOC-1"
     assert len(dumped) == 1  # document_id only
+
+
+def test_schema_mode_failure_retries_json_object_mode() -> None:
+    calls = {"n": 0}
+
+    def handler(**kwargs: object) -> dict[str, object]:
+        calls["n"] += 1
+        if kwargs["json_schema"] is not None:
+            raise RuntimeError("schema rejected")
+        return {"company": "Fallback Corp"}
+
+    client = FakeLLMClient(extract_handler=handler)
+    dumped = asyncio.run(extract(_req(), client)).model_dump()
+
+    assert dumped["company"] == "Fallback Corp"
+    assert calls["n"] == 2
+    assert client.extract_calls[0]["json_schema"] is not None
+    assert client.extract_calls[1]["json_schema"] is None
+
+
+def test_image_url_payloads_are_passed_through() -> None:
+    seen = {}
+
+    def handler(**kwargs: object) -> dict[str, object]:
+        seen["image_b64"] = kwargs["image_b64"]
+        return {"company": "URL Corp"}
+
+    client = FakeLLMClient(extract_handler=handler)
+    req = _req(content="https://example.test/doc.png", content_format="image_url")
+    dumped = asyncio.run(extract(req, client)).model_dump()
+
+    assert dumped["company"] == "URL Corp"
+    assert seen["image_b64"] == "https://example.test/doc.png"
 
 
 def test_build_user_embeds_schema() -> None:
