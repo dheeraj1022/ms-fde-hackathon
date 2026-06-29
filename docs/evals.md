@@ -10,15 +10,15 @@ against a local server because the harness rewrites tool endpoints to
 
 | Task | Tier 1 | Resolution | Efficiency | Robustness | Errored |
 |---|---|---|---|---|---|
-| Signal Triage | **83.6** | **86.1** | **65.4** | **91.7** | 0 |
+| Signal Triage | **84.3** | **87.5** | **64.1** | **92.5** | 0 |
 | Document Extraction | ~86 | 0.85+ | good | strong | 0 |
 | Workflow Orchestration | **98.1** | **98.4** | **96.0** | **99.0** | 0 |
 | **FDEBench composite** | **~89** | | | | |
 
 ## Notes per task
 
-**Task 1 — Triage.** Latest local public-50 run: Tier 1 83.6, Resolution
-86.1, Efficiency 65.4, Robustness 91.7, P95 2281ms, 0 errored. Hard
+**Task 1 — Triage.** Latest public-50 run against deployed v8: Tier 1 84.3,
+Resolution 87.5, Efficiency 64.1, Robustness 92.5, P95 2125ms, 0 errored. Hard
 escalations (hull breach / atmospheric / restricted zone) always fire; judgment
 on category/priority/owner comes from the model, then a deterministic
 calibration layer corrects recurring adversarial patterns such as prompt
