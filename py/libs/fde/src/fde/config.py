@@ -42,8 +42,8 @@ class Settings(BaseSettings):
     model_name: str = "gpt-5.4-mini"         # MODEL_NAME
 
     # --- Resilience / efficiency knobs ---
-    request_timeout_s: float = 30.0          # REQUEST_TIMEOUT_S (per-attempt deadline)
-    max_retries: int = 3                     # MAX_RETRIES (on 429/timeout/5xx)
+    request_timeout_s: float = 25.0          # REQUEST_TIMEOUT_S (per-attempt deadline)
+    max_retries: int = 1                     # MAX_RETRIES (on 429/timeout/5xx)
     retry_base_delay_s: float = 1.0          # RETRY_BASE_DELAY_S (exponential backoff base)
     max_concurrency: int = 8                 # MAX_CONCURRENCY (in-flight LLM calls)
     llm_temperature: float = 0.0             # LLM_TEMPERATURE

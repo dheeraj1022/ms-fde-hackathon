@@ -5,6 +5,7 @@ and exercise the success=False path without a server."""
 
 import asyncio
 
+import httpx
 from fde.contracts import OrchestrateRequest
 from fde.contracts import ToolDefinition
 from fde.contracts import ToolParameter
@@ -13,6 +14,7 @@ from fde.llm import FakeLLMClient
 from fde.llm import ToolCall
 from fde.orchestrate import orchestrate
 from fde.orchestrate.planner import try_template_plan
+from fde.orchestrate.tools import ToolRunner
 from fde.orchestrate.tools import endpoint_map
 from fde.orchestrate.tools import to_function_specs
 
@@ -104,6 +106,43 @@ def test_to_function_specs_maps_params_and_required() -> None:
 def test_endpoint_map_prefers_tool_endpoint() -> None:
     m = endpoint_map(_TOOLS, "http://mock/scenario/TASK-1")
     assert m["audit_log"] == "http://127.0.0.1:1/audit_log"
+
+
+def test_endpoint_map_uses_rewritten_mock_url_when_tool_endpoint_missing() -> None:
+    tools = [
+        ToolDefinition(
+            name="audit_log",
+            description="Log it",
+            endpoint="",
+            parameters=[ToolParameter(name="action", type="string", description="a", required=True)],
+        )
+    ]
+    m = endpoint_map(tools, "https://platform.example/scenario/TASK-1")
+    assert m["audit_log"] == "https://platform.example/scenario/TASK-1/audit_log"
+
+
+def test_tool_runner_retries_retryable_statuses() -> None:
+    calls = {"n": 0}
+
+    async def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            return httpx.Response(429, json={"error": "slow down"}, headers={"Retry-After-Ms": "1"})
+        return httpx.Response(200, json={"ok": True})
+
+    runner = ToolRunner(
+        {"audit_log": "https://platform.example/scenario/TASK-1/audit_log"},
+        transport=httpx.MockTransport(handler),
+    )
+    try:
+        body, ok, summary = asyncio.run(runner.call("audit_log", {"action": "x"}))
+    finally:
+        asyncio.run(runner.aclose())
+
+    assert calls["n"] == 2
+    assert ok is True
+    assert body == {"ok": True}
+    assert summary == '{"ok": true}'
 
 
 def test_emails_sent_excludes_failed_sends() -> None:

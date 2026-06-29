@@ -35,6 +35,7 @@ T = TypeVar("T", bound=FrozenBaseModel)
 # temperature and reject an explicit ``temperature`` argument, so it must be omitted for
 # them. The GPT-5 ``-chat`` variants are non-reasoning and keep normal temperature control.
 _REASONING_PREFIXES: tuple[str, ...] = ("o1", "o3", "o4", "gpt-5")
+_MAX_RETRY_DELAY_S = 10.0
 
 
 def _is_reasoning_model(model_name: str) -> bool:
@@ -125,12 +126,18 @@ class AzureOpenAIClient:
             return None
         try:
             val = resp.headers.get("retry-after")
+            val_ms = resp.headers.get("retry-after-ms")
         except Exception:  # noqa: BLE001 - header access is best-effort
             return None
+        if val_ms:
+            try:
+                return min(float(val_ms) / 1000.0, _MAX_RETRY_DELAY_S)
+            except ValueError:
+                pass
         if not val:
             return None
         try:
-            return float(val)
+            return min(float(val), _MAX_RETRY_DELAY_S)
         except ValueError:
             return None
 
