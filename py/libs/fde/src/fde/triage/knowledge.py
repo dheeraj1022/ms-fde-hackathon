@@ -142,19 +142,20 @@ MISSING_INFO_DEFINITIONS: dict[MissingInfo, str] = {
 
 PRIORITY_RUBRIC = """\
 Priority reflects true operational impact, NOT wording, urgency, or how much context is given.
-- P1 (Red Alert — RARE, ~1 in 12 signals): life-threatening, OR a total vessel-wide / all-modules outage,
-  OR an active catastrophe (hull breach, atmospheric/life-support compromise, hostile boarding).
-- P2 (major — UNCOMMON): reserve for a clear, severe, mission-blocking incident with NO workaround — a
-  production/critical system that is fully DOWN, or a genuine active security threat that is not P1. Being
-  recurring, affecting several crew, coming from an executive, or sounding urgent does NOT by itself make
-  something P2.
-- P3 (standard — BY FAR the most common; the default): any ordinary operational problem — a device, app,
-  login, data feed, or link that is broken, slow, degraded, or erroring for a user or team — EVEN IF it
-  recurs, affects multiple crew, or is business-relevant. If it is a real issue and not a clear P1/P2/P4,
-  it is P3.
-- P4 (routine): no real operational impact — pure how-to / information / inventory requests, convenience
-  preferences, cosmetic-only nits, and non-signal noise/spam.
-Multi-issue signals take the priority of their most severe issue. When unsure between levels, choose P3."""
+Calibration target: roughly P3~45%, P2~25%, P4~25%, P1~8% of real traffic — P2 is COMMON, not rare.
+- P1 (Red Alert — RARE, ~1 in 12): life-threatening, OR a total vessel-wide outage, OR an active
+  catastrophe (hull breach, atmospheric/life-support compromise, hostile boarding).
+- P2 (major — about 1 in 4): a serious mission-affecting fault — a critical/structural/flight system that
+  is down, unsafe, or materially degraded with no clean workaround; or an active security threat that is
+  not P1. Hull & Structural faults and Flight Software/Instrument faults that block work usually land HERE,
+  not P3. Loudness alone never makes P2, but a real safety/structural/blocking fault does.
+- P3 (standard — most common, the default): an ordinary operational problem — a device, app, login, feed,
+  or link broken/slow/degraded for one user or team with a workaround or limited blast radius.
+- P4 (routine): no real operational impact — convenience prefs, cosmetic nits, and non-signal noise/spam.
+  Pure how-to/inventory/info "requests" are usually P4, but a Mission Briefing that asks ops to DO setup
+  work is P3. "Not a Mission Signal" is always P4.
+Multi-issue signals take the priority of their most severe issue. Between P3 and P2, escalate to P2 when
+the system is structural, safety-relevant, or fully blocking; otherwise P3."""
 
 ESCALATION_RULES = """\
 Escalation is the exception, not the rule — most signals do NOT escalate.

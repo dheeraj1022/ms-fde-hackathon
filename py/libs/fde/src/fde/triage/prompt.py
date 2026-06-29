@@ -75,8 +75,8 @@ links, fabricators) — pick the single best owner.
 ## priority — loudness is NOT urgency
 {PRIORITY_RUBRIC}
 A calm note from a senior officer can still be P1; someone yelling "URGENT" about a coffee machine is P4. \
-P3 is the default for any genuine broken-thing report (even recurring, multi-crew, or exec); reserve P2 for \
-a system that is fully down or an active threat, and P4 for noise, convenience, and pure requests.
+P3 is the default for an ordinary broken-thing report, but Hull/Structural and blocking Flight Software \
+faults usually escalate to P2, and a Mission Briefing asking ops to do setup work is P3 (not P4).
 
 ## needs_escalation
 {ESCALATION_RULES}
