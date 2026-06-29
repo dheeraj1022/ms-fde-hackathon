@@ -54,12 +54,28 @@ _COMPILED: list[tuple[re.Pattern[str], str]] = [
     (re.compile(pattern, re.IGNORECASE), label) for pattern, label in _HARD_TRIGGERS
 ]
 
+_NON_INCIDENT_CONTEXTS: tuple[tuple[str, ...], ...] = (
+    ("hull breach vulnerabilities", "partnership opportunity"),
+    ("hull breach vulnerabilities", "holo-demo"),
+    ("hull breach vulnerabilities", "complimentary defense assessment"),
+)
+
 
 def detect_hard_triggers(text: str) -> list[str]:
     """Return distinct catastrophe labels found in ``text`` (empty list if none)."""
+    text_lower = text.lower()
+    text_to_scan = text
+    if any(all(marker in text_lower for marker in markers) for markers in _NON_INCIDENT_CONTEXTS):
+        text_to_scan = re.sub(
+            r"hull breach vulnerabilities",
+            "structural vulnerability claims",
+            text_to_scan,
+            flags=re.IGNORECASE,
+        )
+
     found: list[str] = []
     for rx, label in _COMPILED:
-        if label not in found and rx.search(text):
+        if label not in found and rx.search(text_to_scan):
             found.append(label)
     return found
 

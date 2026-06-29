@@ -14,6 +14,7 @@ from fde.contracts import Team
 from fde.contracts import TriageRequest
 from fde.contracts import TriageResponse
 from fde.llm import LLMClient
+from fde.triage.calibration import apply_signal_pattern_calibration
 from fde.triage.knowledge import CATEGORY_TO_TEAM
 from fde.triage.prompt import build_system_prompt
 from fde.triage.prompt import build_user_prompt
@@ -183,7 +184,8 @@ async def triage(req: TriageRequest, client: LLMClient | None) -> TriageResponse
     if base is None:
         base = _heuristic(req, hard_triggers)
 
-    return apply_floor_and_consistency(base, hard_triggers=hard_triggers)
+    calibrated = apply_signal_pattern_calibration(req, base, hard_triggers=hard_triggers)
+    return apply_floor_and_consistency(calibrated, hard_triggers=hard_triggers)
 
 
 __all__ = ["triage"]

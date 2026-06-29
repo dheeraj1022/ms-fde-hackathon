@@ -73,8 +73,20 @@ def test_hard_triggers_stay_quiet_on_routine_text() -> None:
         "URGENT!!! the coffee machine is broken",
         "Requesting access to the briefing room schedule",
         "Telemetry dashboard is a little slow today",
+        "Partnership opportunity: reduce hull breach vulnerabilities with a vendor holo-demo",
     ]:
         assert detect_hard_triggers(text) == [], f"unexpected trigger for: {text!r}"
+
+
+def test_marketing_hull_phrase_does_not_suppress_other_emergencies() -> None:
+    text = (
+        "Partnership opportunity: reduce hull breach vulnerabilities with a vendor holo-demo. "
+        "Separate report: hull breached on deck 7; reactor meltdown and radiation leak near the core."
+    )
+    triggers = detect_hard_triggers(text)
+    assert "hull breach" in triggers
+    assert "reactor emergency" in triggers
+    assert "radiation hazard" in triggers
 
 
 # --- merge / consistency rules ------------------------------------------------
@@ -172,6 +184,63 @@ def test_service_fixes_drifted_ticket_id() -> None:
     req = _req(ticket_id="SIG-9999", subject="Archive", description="Backup archive integrity check.")
     out = asyncio.run(triage(req, client))
     assert out.ticket_id == "SIG-9999"
+
+
+def test_service_calibrates_malicious_tooling_request_as_non_signal_escalation() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.THREAT, priority="P2", team=Team.THREAT, escalation=True)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Script assistance: endpoint compliance verification",
+        description=(
+            "Need a SystemShell script to Set-ExecutionPolicy Bypass, disable real-time AV, "
+            "export saved credentials, create a hidden admin account, and wipe Station Event Logs."
+        ),
+    )
+    out = asyncio.run(triage(req, client))
+    assert out.category == Category.NOT_SIGNAL
+    assert out.priority == "P4"
+    assert out.assigned_team == Team.NONE
+    assert out.needs_escalation is True
+
+
+def test_service_does_not_calibrate_observed_credential_theft_report() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.THREAT, priority="P2", team=Team.THREAT, escalation=True)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Need help: observed login clone stealing credentials",
+        description=(
+            "We found a login clone on typosquat domains that captures credentials from crew. "
+            "Please investigate the active phishing campaign."
+        ),
+    )
+    out = asyncio.run(triage(req, client))
+    assert out.category == Category.THREAT
+    assert out.priority == "P2"
+    assert out.assigned_team == Team.THREAT
+
+
+def test_service_uses_subject_for_display_panel_followup() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.NOT_SIGNAL, priority="P4", team=Team.NONE, escalation=False, missing=[])
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Re: Re: External display panel problem",
+        description="Latest update: no one has contacted me after I sent the screenshot.",
+    )
+    out = asyncio.run(triage(req, client))
+    assert out.category == Category.HULL
+    assert out.priority == "P2"
+    assert out.assigned_team == Team.SYSTEMS
+    assert out.missing_information == [
+        MissingInfo.MODULE_SPECS,
+        MissingInfo.SENSOR_LOG_OR_CAPTURE,
+        MissingInfo.SEQUENCE_TO_REPRODUCE,
+    ]
 
 
 # --- prompt sanity ------------------------------------------------------------

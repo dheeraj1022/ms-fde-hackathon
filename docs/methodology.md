@@ -15,7 +15,11 @@ machine and the boarding party). We prompt for judgment on category/priority/
 owner, then layer hard escalations (hull breach, atmospheric compromise,
 restricted-zone access) that never depend on tone. Quiet, well-formatted senior
 signals are explicitly treated as possible emergencies. Missing-info is returned
-proactively so ops never has to round-trip 8 minutes for a field.
+proactively so ops never has to round-trip 8 minutes for a field. The final
+pass is a deterministic calibration layer for recurring adversarial patterns:
+prompt-injection snippets, malicious "build me attack tooling" requests,
+administrative scheduling conflicts, and sparse reply threads where the subject
+contains the real subsystem.
 
 **Task 2 — Document Extraction.** Two dimensions: information accuracy (70%) and
 text fidelity (30%). Vision-capable model handles messy/scanned inputs;
