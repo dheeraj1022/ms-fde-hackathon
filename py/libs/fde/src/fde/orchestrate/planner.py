@@ -34,7 +34,7 @@ class _Trace:
 
     async def call_result(self, tool: str, parameters: dict[str, Any]) -> tuple[dict[str, Any], bool]:
         """Execute and record one tool call, returning its body plus success flag."""
-        body, ok, summary = await self._runner.call(tool, parameters)
+        body, ok, summary = await self._runner.call(tool, parameters, max_retries=0)
         self.steps.append(
             StepExecuted(
                 step=len(self.steps) + 1,
@@ -53,12 +53,13 @@ def _available(req: OrchestrateRequest, *tool_names: str) -> bool:
 
 
 def _account_id(goal: str) -> str | None:
-    match = re.search(r"\((ACC-\d+)\)", goal)
+    match = re.search(r"\b(ACC-\d+)\b", goal)
     return match.group(1) if match else None
 
 
 def _split_list(text: str) -> list[str]:
     normalized = re.sub(r"\s+and\s+", ", ", text)
+    normalized = re.sub(r"\s*/\s*", ", ", normalized)
     return [part.strip(" \t\r\n.;:") for part in normalized.split(",") if part.strip(" \t\r\n.;:")]
 
 
@@ -72,14 +73,27 @@ def _has_all(text: str, *needles: str) -> bool:
 
 def _goal_matches(goal_lower: str, family: str) -> bool:
     if family == "incident":
-        return "incident" in goal_lower and (
-            "affect" in goal_lower or "severity" in goal_lower or " sev" in goal_lower
+        return (
+            "incident" in goal_lower
+            and ("affect" in goal_lower or "severity" in goal_lower or " sev" in goal_lower)
+        ) or (
+            re.search(r"\bsev-\d+\b", goal_lower) is not None
+            and ("spans" in goal_lower or "affected" in goal_lower)
         )
     if family == "inventory":
-        return ("inventory" in goal_lower or "stock" in goal_lower) and (
-            "alert" in goal_lower or "notify" in goal_lower
+        return (
+            ("inventory" in goal_lower or "stock" in goal_lower or "sweep" in goal_lower or "inspect" in goal_lower)
+            and ("alert" in goal_lower or "notify" in goal_lower or "slack" in goal_lower or "contact" in goal_lower)
+            and (
+                "below" in goal_lower
+                or "under" in goal_lower
+                or "less than" in goal_lower
+                or "fewer than" in goal_lower
+            )
         ) and (
-            "below" in goal_lower or "under" in goal_lower or "less than" in goal_lower
+            "warehouse" in goal_lower
+            or "units" in goal_lower
+            or re.search(r"\b[A-Z][A-Za-z]+-[A-Z0-9]+\b", goal_lower, re.IGNORECASE) is not None
         )
     if family == "churn":
         return _has_all(goal_lower, "churn", "risk")
@@ -91,9 +105,17 @@ def _goal_matches(goal_lower: str, family: str) -> bool:
             or "reengagement" in goal_lower
         )
     if family == "meeting":
-        return _has_all(goal_lower, "schedule", "meeting", "acc-", "rep-")
+        has_meeting_intent = "meeting" in goal_lower or "discussion" in goal_lower or (
+            "rep-" in goal_lower and "time" in goal_lower
+        )
+        return has_meeting_intent and _has_all(goal_lower, "acc-", "rep-")
     if family == "onboarding":
-        return "onboarding" in goal_lower or "onboard" in goal_lower
+        return (
+            "onboarding" in goal_lower
+            or "onboard" in goal_lower
+            or "new-customer setup" in goal_lower
+            or "new customer setup" in goal_lower
+        )
     if family == "renewal":
         return "renewal" in goal_lower and "acc-" in goal_lower
     return False
@@ -155,15 +177,37 @@ async def _plan_incident(req: OrchestrateRequest, trace: _Trace) -> list[StepExe
         req.goal,
         re.IGNORECASE,
     )
+    sev_code_match = re.search(r"\bsev-(\d+)\b", req.goal, re.IGNORECASE)
     scope_match = re.search(
         r"(?:affecting|for|on)\s+([A-Za-z0-9][\w.-]+)\s+(?:in|across)\s+(.+?)(?::|;|\s+-\s|\s+and\s+(?:check|notify|alert|escalate)\b|$)",
         req.goal,
         re.IGNORECASE,
     )
-    if not severity_match or not scope_match:
+    if not scope_match:
+        scope_match = re.search(
+            r"([A-Za-z0-9][\w.-]+)\s+(?:degradation\s+)?spans\s+(.+?)(?::|;|\s+-\s|$)",
+            req.goal,
+            re.IGNORECASE,
+        )
+    if not scope_match:
+        scope_match = re.search(
+            r"([A-Za-z0-9][\w.-]+)\s+is affected at\s+(.+?)\s+with\s+(critical|high|medium|low)\s+impact",
+            req.goal,
+            re.IGNORECASE,
+        )
+        if scope_match and severity_match is None:
+            severity_match = re.match(r"(critical|high|medium|low)", scope_match.group(3), re.IGNORECASE)
+    if not (severity_match or sev_code_match) or not scope_match:
         return None
-    severity = (severity_match.group(1) or severity_match.group(2) or "").lower()
-    sku, warehouses_text = scope_match.groups()
+    if severity_match:
+        severity = next((value.lower() for value in severity_match.groups() if value), "medium")
+    else:
+        assert sev_code_match is not None
+        severity = {"1": "critical", "2": "medium", "3": "medium", "4": "low"}.get(
+            sev_code_match.group(1), "medium"
+        )
+    sku = scope_match.group(1)
+    warehouses_text = scope_match.group(2)
     warehouses = _split_list(warehouses_text)
 
     for warehouse in warehouses:
@@ -199,17 +243,30 @@ async def _plan_incident(req: OrchestrateRequest, trace: _Trace) -> list[StepExe
 async def _plan_inventory(req: OrchestrateRequest, trace: _Trace) -> list[StepExecuted] | None:
     match = re.search(
         r"(?:inventory|stock)\s+(?:for|of)\s+(.+?)\s+(?:across|in)\s+(.+?)\s+"
-        r"(?:and\s+)?(?:alert|notify).*?(?:below|under|less than)\s+(\d+)\s+units",
+        r"(?:and\s+)?(?:alert|notify|slack|contact).*?(?:below|under|less than|fewer than)\s+(\d+)\s+units",
         req.goal,
         re.IGNORECASE,
     )
+    if not match:
+        match = re.search(
+            r"(?:for\s+)?([A-Za-z0-9][\w.-]+),?\s+(?:inspect|check|sweep)\s+(.+?);.*?"
+            r"(?:below|under|less than|fewer than)\s+(\d+)",
+            req.goal,
+            re.IGNORECASE,
+        )
+    if not match:
+        match = re.search(
+            r"([A-Za-z0-9][\w.-]+)\s+stock\s+sweep:\s+(.+?)\.\s+.*?(?:threshold|under)\s+(\d+)",
+            req.goal,
+            re.IGNORECASE,
+        )
     if not match:
         return None
     sku, warehouses_text, threshold_text = match.groups()
     threshold = int(threshold_text)
     inventory: list[tuple[str, dict[str, Any]]] = []
 
-    constraints = _constraints_text(req)
+    constraints = f"{_constraints_text(req)} | {req.goal.lower()}"
     retry_failures = any(
         phrase in constraints
         for phrase in (
@@ -218,6 +275,7 @@ async def _plan_inventory(req: OrchestrateRequest, trace: _Trace) -> list[StepEx
             "retry on failure",
             "retry failures",
             "retry failed",
+            "retry one failed",
             "handle failures with retry",
             "resilience",
         )
@@ -319,9 +377,20 @@ async def _plan_meeting(req: OrchestrateRequest, trace: _Trace) -> list[StepExec
         req.goal,
         re.IGNORECASE,
     )
-    if not match:
-        return None
-    meeting_type, account_id, rep_id = match.groups()
+    if match:
+        meeting_type, account_id, rep_id = match.groups()
+    else:
+        account_id = _account_id(req.goal)
+        rep_match = re.search(r"\b(REP-\d+)\b", req.goal)
+        type_match = re.search(
+            r"\b(renewal|demo|kickoff|onboarding|strategy|contract)\s+(?:meeting|discussion)\b",
+            req.goal,
+            re.IGNORECASE,
+        )
+        if not account_id or not rep_match:
+            return None
+        meeting_type = type_match.group(1) if type_match else "customer"
+        rep_id = rep_match.group(1)
 
     account = await trace.call("crm_get_account", {"account_id": account_id})
     subscription = await trace.call("subscription_check", {"account_id": account_id})

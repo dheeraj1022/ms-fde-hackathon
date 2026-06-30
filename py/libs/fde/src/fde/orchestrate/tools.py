@@ -108,14 +108,15 @@ class ToolRunner:
         except ValueError:
             return None
 
-    async def call(self, name: str, params: dict[str, Any]) -> tuple[Any, bool, str]:
+    async def call(self, name: str, params: dict[str, Any], *, max_retries: int | None = None) -> tuple[Any, bool, str]:
         url = self._endpoints.get(name)
         if not url:
             return None, False, f"no endpoint for tool {name}"
         last_body: Any = None
         last_summary = ""
+        attempts = self._max_retries if max_retries is None else max_retries
         try:
-            for attempt in range(self._max_retries + 1):
+            for attempt in range(attempts + 1):
                 resp = await self._client.post(url, json=params)
                 try:
                     body: Any = resp.json()
@@ -128,7 +129,7 @@ class ToolRunner:
                     return body, True, last_summary
                 if resp.status_code != 429 and not 500 <= resp.status_code < 600:
                     return body, False, last_summary
-                if attempt >= self._max_retries:
+                if attempt >= attempts:
                     break
 
                 delay = self._retry_after(resp) or self._retry_base_delay_s * (2**attempt)

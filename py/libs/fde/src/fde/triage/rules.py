@@ -43,6 +43,7 @@ _HARD_TRIGGERS: list[tuple[str, str]] = [
     (r"radiation (?:leak|breach|exposure|spike|flood)", "radiation hazard"),
     (r"reactor (?:breach|meltdown|critical|scram|runaway)", "reactor emergency"),
     (r"restricted (?:zone|area|sector)[^.]{0,40}(?:access|entry|breach|intrus|enter)", "restricted-zone access"),
+    (r"restricted clean[- ]room[^.]{0,40}(?:access|entry|breach|intrus|enter)", "restricted-zone access"),
     (
         r"(?:unauthor[is]z?ed|forced|illegal) (?:access|entry)[^.]{0,40}"
         r"(?:restricted|containment|reactor|secure|airlock|vault)",
@@ -60,11 +61,38 @@ _NON_INCIDENT_CONTEXTS: tuple[tuple[str, ...], ...] = (
     ("hull breach vulnerabilities", "complimentary defense assessment"),
 )
 
+_NON_INCIDENT_HARD_TRIGGER_CONTEXTS = (
+    "training announcement",
+    "optional webinar",
+    "tabletop exercise",
+    "exercise material",
+    "vendor pitch",
+    "sales outreach",
+    "marketing mail",
+    "prompt injection",
+    "synthetic eval",
+    "benchmark prompt injection",
+    "no real station issue",
+    "no operational issue",
+    "no incident",
+    "not happening now",
+)
+
 
 def detect_hard_triggers(text: str) -> list[str]:
     """Return distinct catastrophe labels found in ``text`` (empty list if none)."""
     text_lower = text.lower()
+    if any(marker in text_lower for marker in _NON_INCIDENT_HARD_TRIGGER_CONTEXTS) and not any(
+        marker in text_lower for marker in ("separate report", "actual incident", "live incident")
+    ):
+        return []
     text_to_scan = text
+    text_to_scan = re.sub(
+        r"\bno\s+(?:rapid\s+)?(?:decompression|depressuri[sz]ation|atmospheric compromise)\b",
+        "no environmental hard trigger",
+        text_to_scan,
+        flags=re.IGNORECASE,
+    )
     if any(all(marker in text_lower for marker in markers) for markers in _NON_INCIDENT_CONTEXTS):
         text_to_scan = re.sub(
             r"hull breach vulnerabilities",

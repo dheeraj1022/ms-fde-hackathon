@@ -23,7 +23,9 @@ Return a single JSON object containing exactly the fields named in the schema. R
    stated in the document, return null for it. Never guess, infer, derive, or fabricate.
    A correct null earns full credit; a wrong value earns nothing.
 3. FOLLOW EACH FIELD DESCRIPTION. The schema's per-field descriptions say where on the page
-   to look and how the value should be captured. Respect them precisely.
+   to look and how the value should be captured. Respect them precisely. If schema keys are
+   generic (for example answer_01, field_2, valueA), the description/title is authoritative:
+   use it to identify the source label and still output the generic key requested by the schema.
 4. PRESERVE THE SCHEMA SHAPE. Keep nested objects nested and arrays as arrays. Do not
    flatten, rename, summarize, merge, or add fields. Every object you return must contain
    the keys listed for that object in the schema.
@@ -47,7 +49,9 @@ def build_user(schema: dict[str, Any] | None) -> str:
         "Extract the fields defined by this JSON schema from the document image.\n\n"
         f"SCHEMA:\n{schema_str}\n\n"
         "Return one JSON object matching this schema shape exactly. Keep nested objects "
-        "and arrays nested; do not flatten, rename, or add fields. Transcribe each value "
+        "and arrays nested; do not flatten, rename, or add fields. If a schema key is generic "
+        "(such as answer_01), use that field's description/title to find the real source label "
+        "on the page and return the value under the generic schema key. Transcribe each value "
         "exactly as it appears in the document. For any field that is not present or not "
         "legible, return null. Extract every row for array fields. Output JSON only."
     )

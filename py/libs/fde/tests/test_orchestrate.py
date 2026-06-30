@@ -173,11 +173,34 @@ class _RecordingRunner:
         self.responses = responses
         self.counts = {name: 0 for name in responses}
 
-    async def call(self, name: str, params: dict[str, object]) -> tuple[dict[str, object], bool, str]:
+    async def call(
+        self,
+        name: str,
+        params: dict[str, object],
+        *,
+        max_retries: int | None = None,
+    ) -> tuple[dict[str, object], bool, str]:
         idx = self.counts.get(name, 0)
         self.counts[name] = idx + 1
         options = self.responses.get(name) or [{}]
         body = options[min(idx, len(options) - 1)]
+        return body, True, "ok"
+
+
+class _FailOnceRunner(_RecordingRunner):
+    async def call(
+        self,
+        name: str,
+        params: dict[str, object],
+        *,
+        max_retries: int | None = None,
+    ) -> tuple[dict[str, object], bool, str]:
+        idx = self.counts.get(name, 0)
+        self.counts[name] = idx + 1
+        if name == "inventory_query" and idx == 0:
+            return {}, False, "temporary failure"
+        options = self.responses.get(name) or [{}]
+        body = options[min(max(idx - 1, 0), len(options) - 1)]
         return body, True, "ok"
 
 
@@ -228,6 +251,39 @@ def test_template_planner_inventory_paraphrase_stays_deterministic() -> None:
     assert steps[-1].parameters["user_id"] == "warehouse_mgr_APAC-SOUTH"
 
 
+def test_template_planner_inventory_sweep_paraphrase_and_retry_once() -> None:
+    req = OrchestrateRequest(
+        task_id="TASK-INV-SWEEP",
+        goal=(
+            "MedKit-A9 stock sweep: US-EAST / EU-WEST / APAC-SOUTH. "
+            "Only when all results are known, notify managers for locations under threshold 40. "
+            "Retry one failed lookup once."
+        ),
+        available_tools=_ALL_TOOLS,
+        constraints=["Read all inventory before notification"],
+    )
+    runner = _FailOnceRunner(
+        {"inventory_query": [{"quantity": 12}, {"quantity": 55}, {"quantity": 8}], "notification_send": [{}, {}]}
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == [
+        "inventory_query",
+        "inventory_query",
+        "inventory_query",
+        "inventory_query",
+        "notification_send",
+        "notification_send",
+    ]
+    assert [step.parameters["warehouse"] for step in steps[:4]] == ["US-EAST", "US-EAST", "EU-WEST", "APAC-SOUTH"]
+    assert [step.parameters["user_id"] for step in steps[4:]] == [
+        "warehouse_mgr_US-EAST",
+        "warehouse_mgr_APAC-SOUTH",
+    ]
+
+
 def test_template_planner_incident_paraphrase_stays_deterministic() -> None:
     req = OrchestrateRequest(
         task_id="TASK-INC-PARA",
@@ -258,6 +314,31 @@ def test_template_planner_incident_paraphrase_stays_deterministic() -> None:
     ]
     assert steps[2].parameters["user_id"] == "oncall_engineer"
     assert steps[3].parameters["user_id"] == "engineering_manager"
+
+
+def test_template_planner_sev_code_incident_paraphrase_stays_deterministic() -> None:
+    req = OrchestrateRequest(
+        task_id="TASK-INC-SEV",
+        goal=(
+            "SEV-2 Coolant-Q7 degradation spans US-EAST, EU-WEST; verify each site, "
+            "page the on-call engineer by SMS, and do not page management unless policy requires."
+        ),
+        available_tools=_ALL_TOOLS,
+        constraints=["Do not page management unless policy requires it"],
+    )
+    runner = _RecordingRunner(
+        {
+            "inventory_query": [{"quantity": 11}, {"quantity": 3}],
+            "notification_send": [{}, {}],
+            "audit_log": [{}],
+        }
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == ["inventory_query", "inventory_query", "notification_send", "audit_log"]
+    assert steps[2].parameters["user_id"] == "oncall_engineer"
 
 
 def test_template_planner_meeting_variant_uses_goal_type() -> None:
@@ -327,6 +408,40 @@ def test_template_planner_meeting_paraphrase_uses_template() -> None:
     assert steps[3].parameters["subject"] == "renewal meeting"
 
 
+def test_template_planner_discussion_time_paraphrase_uses_meeting_template() -> None:
+    req = OrchestrateRequest(
+        task_id="TASK-MTG-DISCUSSION",
+        goal=(
+            "Get REP-42 time next week for a renewal discussion with Northwind Traders (ACC-8801); "
+            "free-tier customers must be blocked, then rep notified and audited."
+        ),
+        available_tools=_ALL_TOOLS,
+        constraints=["Free-tier accounts cannot schedule meetings"],
+    )
+    runner = _RecordingRunner(
+        {
+            "crm_get_account": [{"name": "Northwind Traders", "tier": "free"}],
+            "subscription_check": [{"plan": "free", "status": "active"}],
+            "calendar_check": [{"available_slots": ["2026-04-10T10:00"]}],
+            "notification_send": [{}],
+            "audit_log": [{}],
+        }
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == [
+        "crm_get_account",
+        "subscription_check",
+        "calendar_check",
+        "notification_send",
+        "audit_log",
+    ]
+    assert steps[3].parameters["user_id"] == "REP-42"
+    assert steps[4].parameters["action"] == "meeting_blocked"
+
+
 def test_template_planner_inactive_onboarding_does_not_require_email_tools() -> None:
     tools = [tool for tool in _ALL_TOOLS if tool.name not in {"email_send", "calendar_check"}]
     req = OrchestrateRequest(
@@ -358,6 +473,39 @@ def test_template_planner_inactive_onboarding_does_not_require_email_tools() -> 
     ]
     assert steps[2].parameters["message"] == "Onboarding blocked: Tailspin Toys subscription is inactive"
     assert steps[3].parameters["details"]["reason"] == "subscription_inactive"
+
+
+def test_template_planner_new_customer_setup_without_parenthesized_account() -> None:
+    tools = [tool for tool in _ALL_TOOLS if tool.name not in {"email_send", "calendar_check"}]
+    req = OrchestrateRequest(
+        task_id="TASK-ONBOARD-PARA",
+        goal=(
+            "Start new-customer setup for Fabrikam Medical ACC-7300 with CSM-17; "
+            "expired subscriptions block the process and sales_team must be notified with an audit."
+        ),
+        available_tools=tools,
+        constraints=["If subscription is expired, abort and notify sales instead"],
+    )
+    runner = _RecordingRunner(
+        {
+            "crm_get_account": [{"name": "Fabrikam Medical"}],
+            "subscription_check": [{"status": "expired", "plan": "none"}],
+            "notification_send": [{}],
+            "audit_log": [{}],
+        }
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == [
+        "crm_get_account",
+        "subscription_check",
+        "notification_send",
+        "audit_log",
+    ]
+    assert steps[2].parameters["message"] == "Onboarding blocked: Fabrikam Medical subscription is expired"
+    assert steps[3].parameters["details"]["account_id"] == "ACC-7300"
 
 
 def test_template_planner_low_discount_renewal_does_not_require_notification_tool() -> None:

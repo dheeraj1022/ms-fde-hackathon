@@ -506,6 +506,81 @@ def test_service_lowers_fyi_certificate_threat_priority_without_losing_escalatio
     assert out.missing_information == [MissingInfo.AFFECTED_SUBSYSTEM, MissingInfo.MISSION_IMPACT]
 
 
+def test_service_closes_scary_training_noise_even_if_model_overreacts() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.THREAT, priority="P1", team=Team.THREAT, escalation=True)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="FYI webinar: decompression, hostile boarding, malware containment",
+        description="Training announcement only. It lists scary topics but reports no real station issue.",
+    )
+
+    out = asyncio.run(triage(req, client))
+
+    assert out.category == Category.NOT_SIGNAL
+    assert out.priority == "P4"
+    assert out.assigned_team == Team.NONE
+    assert out.needs_escalation is False
+
+
+def test_service_escalates_quiet_life_support_reading() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.COMMS, priority="P4", team=Team.COMMS, escalation=False)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Small note: CO2 scrubber readings climbing in sleep bay",
+        description="Crew are calm, but CO2 concentration is above limit and ventilation is not clearing the bay.",
+    )
+
+    out = asyncio.run(triage(req, client))
+
+    assert out.category == Category.HULL
+    assert out.priority == "P1"
+    assert out.assigned_team == Team.SYSTEMS
+    assert out.needs_escalation is True
+    assert out.missing_information == [MissingInfo.HABITAT_CONDITIONS, MissingInfo.ANOMALY_READOUT]
+
+
+def test_service_routes_access_process_question_to_briefing() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.ACCESS, priority="P2", team=Team.IDENTITY, escalation=True)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="How do I request access to approved analytics workspace?",
+        description="New analyst onboarding question only; nothing is broken and no access attempt has failed yet.",
+    )
+
+    out = asyncio.run(triage(req, client))
+
+    assert out.category == Category.BRIEFING
+    assert out.priority == "P4"
+    assert out.assigned_team == Team.NONE
+    assert out.needs_escalation is False
+    assert out.missing_information == []
+
+
+def test_service_routes_physical_badge_reader_damage_to_systems() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.ACCESS, priority="P2", team=Team.IDENTITY, escalation=True)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Badge reader hinge snapped at visitor gate",
+        description="The physical reader housing is broken; permissions are valid and guard override works.",
+    )
+
+    out = asyncio.run(triage(req, client))
+
+    assert out.category == Category.HULL
+    assert out.priority == "P3"
+    assert out.assigned_team == Team.SYSTEMS
+    assert out.needs_escalation is False
+    assert out.missing_information == [MissingInfo.MODULE_SPECS]
+
+
 # --- prompt sanity ------------------------------------------------------------
 
 

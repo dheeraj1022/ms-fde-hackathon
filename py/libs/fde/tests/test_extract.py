@@ -309,6 +309,25 @@ def test_schema_shaping_converts_decimal_percent_when_schema_requests_it() -> No
     assert dumped["menPct"] == 0.41
 
 
+def test_schema_shaping_converts_numeric_percent_when_schema_requests_decimal() -> None:
+    schema = """
+    {
+      "type": "object",
+      "properties": {
+        "womenPct": {
+          "type": "number",
+          "description": "Decimal representation of the percentage of women"
+        }
+      }
+    }
+    """
+    client = FakeLLMClient(extract_handler=lambda **_: {"womenPct": 49})
+
+    dumped = asyncio.run(extract(_req(json_schema=schema), client)).model_dump()
+
+    assert dumped["womenPct"] == 0.49
+
+
 def test_schema_shaping_converts_number_multipliers() -> None:
     schema = '{"type":"object","properties":{"naturalizedCitizens":{"type":"integer"}}}'
     client = FakeLLMClient(extract_handler=lambda **_: {"naturalizedCitizens": "24 million"})
@@ -392,6 +411,41 @@ def test_pattern_properties_shape_dynamic_keys() -> None:
     dumped = asyncio.run(extract(_req(json_schema=schema), client)).model_dump()
 
     assert dumped["measurements"] == {"vital_o2": 98.5, "note": "stable"}
+
+
+def test_generic_schema_keys_can_be_filled_from_description_source_keys() -> None:
+    schema = """
+    {
+      "type": "object",
+      "properties": {
+        "answer_01": {
+          "type": "string",
+          "description": "Company name. Output this source field under key answer_01; source label/key is 'company'."
+        },
+        "answer_02": {
+          "type": "object",
+          "description": "Output this source field under key answer_02; source label/key is 'demographics'.",
+          "properties": {
+            "answer_03": {
+              "type": "number",
+              "description": "Decimal representation. source label/key is 'menPct'."
+            }
+          }
+        }
+      }
+    }
+    """
+    client = FakeLLMClient(
+        extract_handler=lambda **_: {
+            "company": "Pew Research Center",
+            "demographics": {"menPct": "41%"},
+        },
+    )
+
+    dumped = asyncio.run(extract(_req(json_schema=schema), client)).model_dump()
+
+    assert dumped["answer_01"] == "Pew Research Center"
+    assert dumped["answer_02"]["answer_03"] == 0.41
 
 
 def test_build_user_embeds_schema() -> None:

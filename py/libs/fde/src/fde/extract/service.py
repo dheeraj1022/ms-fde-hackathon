@@ -50,7 +50,7 @@ _NULL_SENTINELS = frozenset(
 # Keys the scorer ignores; we always set document_id ourselves, so drop any from the model.
 _RESERVED_KEYS = frozenset({"document_id", "difficulty"})
 _MISSING = object()
-_SPARSE_RETRY_THRESHOLD = 0.30
+_SPARSE_RETRY_THRESHOLD = 0.50
 
 
 def _parse_schema(raw: str | None) -> dict[str, Any] | None:
@@ -111,6 +111,35 @@ def _find_value_for_key(raw: dict[str, Any], key: str) -> Any:
     if key in raw:
         return raw[key]
     return fallback
+
+
+def _description_source_keys(schema: dict[str, Any]) -> list[str]:
+    keys: list[str] = []
+    for attr in ("title", "description"):
+        text = schema.get(attr)
+        if not isinstance(text, str):
+            continue
+        for pattern in (
+            r"source (?:label/)?key is ['\"]([^'\"]+)['\"]",
+            r"source field(?: under key [^;,.]+)?(?: is|:)\s*['\"]?([A-Za-z0-9_. -]+)['\"]?",
+            r"field(?: named)? ['\"]([^'\"]+)['\"]",
+        ):
+            for match in re.finditer(pattern, text, re.IGNORECASE):
+                candidate = match.group(1).strip(" .,:;\"'")
+                if candidate and candidate not in keys:
+                    keys.append(candidate)
+    return keys
+
+
+def _find_value_for_property(raw: dict[str, Any], key: str, schema: dict[str, Any]) -> Any:
+    value = _find_value_for_key(raw, key)
+    if value is not _MISSING:
+        return value
+    for source_key in _description_source_keys(schema):
+        value = _find_value_for_key(raw, source_key)
+        if value is not _MISSING:
+            return value
+    return _MISSING
 
 
 def _lookup_ref(root: dict[str, Any], ref: str) -> dict[str, Any] | None:
@@ -262,7 +291,10 @@ def _coerce_number(value: Any, schema: dict[str, Any]) -> Any:
     if isinstance(value, bool) or value is None:
         return value
     if isinstance(value, int | float):
-        return int(value) if "integer" in _schema_types(schema) else value
+        number = float(value)
+        if _wants_decimal_percent(schema) and 1 < abs(number) <= 100:
+            number /= 100
+        return int(number) if "integer" in _schema_types(schema) else number
     if not isinstance(value, str):
         return value
     text = value.strip()
@@ -342,7 +374,7 @@ def _shape_to_schema(value: Any, schema: Any, root: dict[str, Any]) -> Any:
             return shaped
         for key in _schema_keys(resolved):
             prop_schema = properties.get(key, {})
-            shaped[key] = _shape_to_schema(_find_value_for_key(preserved, key), prop_schema, root)
+            shaped[key] = _shape_to_schema(_find_value_for_property(preserved, key, prop_schema), prop_schema, root)
         return shaped
 
     if "array" in types:
@@ -390,7 +422,11 @@ def _present_slot_count(value: Any, schema: Any, root: dict[str, Any]) -> int:
         if not isinstance(value, dict):
             return 0
         return sum(
-            _present_slot_count(_find_value_for_key(value, key), properties.get(key, {}), root)
+            _present_slot_count(
+                _find_value_for_property(value, key, properties.get(key, {})),
+                properties.get(key, {}),
+                root,
+            )
             for key in _schema_keys(resolved)
         )
     return 1 if _has_signal(value) else 0
