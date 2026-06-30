@@ -21,17 +21,17 @@ Each task comes from a real customer engagement: noisy inputs, messy documents, 
 Live HTTPS endpoint:
 `https://fde-triage-api.delightfulsea-2b971cea.eastus.azurecontainerapps.io`
 
-Current deployed image: `fdehackdyh8j.azurecr.io/fde-triage:v9`. The service
+Current deployed image: `fdehackdyh8j.azurecr.io/fde-triage:v14`. The service
 runs all three FDEBench tasks on one FastAPI app, uses Azure OpenAI
 `gpt-5.4-mini` for triage/extraction fallback judgment, and uses a deterministic
 template planner for the generated orchestration workflows.
 
 | Task | Endpoint | Latest public-50 Tier 1 |
 |------|----------|-------------------------|
-| Signal Triage | `POST /triage` | **84.3** |
-| Document Extraction | `POST /extract` | **86.4** |
-| Workflow Orchestration | `POST /orchestrate` | **98.1** |
-| **Composite** | — | **~89.6** |
+| Signal Triage | `POST /triage` | **83.3** |
+| Document Extraction | `POST /extract` | **78.8** |
+| Workflow Orchestration | `POST /orchestrate` | **97.2** |
+| **Composite** | — | **~86.4** |
 
 Submission docs:
 [Architecture](docs/architecture.md) ·

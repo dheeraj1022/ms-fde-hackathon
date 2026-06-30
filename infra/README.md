@@ -34,7 +34,7 @@ pulumi config set acrName <globally-unique-acr-name>
 pulumi config set containerAppsEnvironmentName fde-aca-env
 pulumi config set containerAppName fde-triage-api
 pulumi config set imageRepository fde-triage
-pulumi config set imageTag v9
+pulumi config set imageTag v14
 
 pulumi config set azureOpenAiEndpoint https://<your-aoai-resource>.openai.azure.com/
 pulumi config set azureOpenAiApiKey <your-key> --secret
@@ -48,14 +48,14 @@ Build and push the container image before or after provisioning the registry:
 
 ```powershell
 cd ../../
-az acr build --registry <acr-name> --image fde-triage:v9 .\py
+az acr build --registry <acr-name> --image fde-triage:v14 .\py
 ```
 
 The Azure OpenAI key is stored as a Pulumi secret and injected into the Container
 App as a Container Apps secret. Image pulls use managed identity instead of ACR
 admin credentials, and no secrets are committed to the repository.
 
-The current live submission image is `fdehackdyh8j.azurecr.io/fde-triage:v9`.
+The current live submission image is `fdehackdyh8j.azurecr.io/fde-triage:v14`.
 
 ## Operations and security posture
 

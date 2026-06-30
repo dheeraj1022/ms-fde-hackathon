@@ -11,38 +11,55 @@ remote Container App cannot reach.
 
 | Task | Tier 1 | Resolution | Efficiency | Robustness | Errored |
 |---|---|---|---|---|---|
-| Signal Triage | **84.3** | **87.5** | **64.1** | **92.5** | 0 |
-| Document Extraction | **86.4** | **85.6** | **81.1** | **91.4** | 0 |
-| Workflow Orchestration | **98.1** | **98.4** | **96.0** | **99.0** | 0 |
-| **FDEBench composite** | **~89.6** | | | | |
+| Signal Triage | **83.3** | **88.9** | **54.4** | **93.3** | 0 |
+| Document Extraction | **78.8** | **86.1** | **41.1** | **91.7** | 0 |
+| Workflow Orchestration | **97.2** | **97.1** | **96.0** | **98.3** | 0 |
+| **FDEBench composite** | **~86.4** | | | | |
+
+Measured against deployed image `fde-triage:v14` (Container App revision
+`fde-triage-api--0000013`) on 2026-06-30. Every robustness probe passes on all
+three tasks and no item errored.
 
 ## Notes per task
 
-**Task 1 — Triage.** Latest measured live public-50 run: Tier 1 84.3,
-Resolution 87.5, Efficiency 64.1, Robustness 92.5, P95 2125ms, 0 errored. Hard
-escalations (hull breach / atmospheric / restricted zone) always fire; judgment
-on category/priority/owner comes from the model, then a deterministic
-calibration layer corrects recurring adversarial patterns such as prompt
-injection, harmful tooling requests, admin scheduling noise, and sparse reply
-threads. Missing-info returned proactively. All robustness probes pass.
+**Task 1 — Triage.** Latest measured live public-50 run: Tier 1 83.3,
+Resolution 88.9, Efficiency 54.4, Robustness 93.3, P95 2547ms, 0 errored.
+Resolution dimensions: category 0.934, priority 0.921, routing 0.964,
+escalation 0.889. Hard escalations (hull breach / atmospheric / restricted zone)
+always fire; judgment on category/priority/owner comes from the model, then a
+deterministic calibration layer corrects recurring adversarial patterns such as
+prompt injection, harmful tooling requests, admin scheduling noise, cancelled
+"scary" drills, and sparse reply threads. Missing-info returned proactively. All
+seven robustness probes pass; adversarial accuracy 88.9.
 
-**Task 2 — Extraction.** Latest measured live public-50 run: Tier 1 86.4,
-Resolution 85.6, Efficiency 81.1, Robustness 91.4, P95 10281ms, 0 errored.
-Vision model on messy/scanned docs; resolution split was information accuracy
-0.873 and text fidelity 0.814.
+**Task 2 — Extraction.** Latest measured live public-50 run: Tier 1 78.8,
+Resolution 86.1, Efficiency 41.1, Robustness 91.7, P95 ~20s, 0 errored.
+Resolution split was information accuracy 0.878 and text fidelity 0.823. The
+efficiency score is the one weak dimension: we deliberately run the vision model
+at `VISION_DETAIL=high`, which tiles each document image into many patches. That
+holds resolution up on dense tables and scanned forms but pushes P95 latency to
+~20s, costing efficiency. This is an accuracy-over-latency tradeoff, not an
+error — every probe passes and no item errored. Remaining resolution losses are
+genuine vision limits (OCR name misreads, field-boundary merges, ambiguous
+percentage normalization), not pipeline bugs.
 
 **Task 3 — Orchestration.** Deterministic template planner first, LLM fallback
 for unknown goals. The planner covers the seven generated workflow families,
 executes required read/action tools, enforces exact canonical IDs/channels/audit
-actions, and emits ordered traces. Latest representative local public-50 run
-with official mock tools: Tier 1 98.1, Resolution 98.4, Efficiency 96.0,
-Robustness 99.0, P95 234ms, 0 errored.
+actions, honors per-goal retry budgets ("retry once" vs "up to twice"), and
+emits ordered traces. Latest representative local public-50 run with official
+mock tools: Tier 1 97.2, Resolution 97.1, Efficiency 96.0, Robustness 98.3,
+constraint compliance 0.984, P95 282ms, 0 errored.
 
 ## Known limitations / next
 
 - Task 1 is above 80 on the deployed public-50 run; remaining losses are mostly
   priority and missing-info nuance.
+- Task 2 efficiency (P95 ~20s) is the main drag on the composite, a direct
+  consequence of `VISION_DETAIL=high`. A future pass could A/B `auto`/`low`
+  detail to trade a few resolution points for a large latency win.
 - Task 3 is comfortably above 80 without relying on multi-round model judgment.
-- Current deployed v9 keeps the measured prediction logic and adds platform
-  checklist hardening: shorter AOAI timeout/retry budget, `Retry-After-Ms`
-  support, capped retry delays, and transient T3 tool retries.
+- Current deployed v14 keeps the measured prediction logic and adds the latest
+  hardening round: cancellation-aware hard triggers, multilingual life-support /
+  unauthorized-access emergency detection, a safety guard so noise suppression
+  can never hide a co-occurring emergency, and budget-aware T3 tool retries.

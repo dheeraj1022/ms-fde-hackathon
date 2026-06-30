@@ -99,7 +99,7 @@ Client ──HTTPS──▶ Azure Container App (FastAPI, uvicorn)
 ## Azure topology
 
 - **Azure Container Apps** — public HTTPS, single revision, scales to handle
-  the benchmark's concurrent burst. Current deployed image: `fde-triage:v9`.
+  the benchmark's concurrent burst. Current deployed image: `fde-triage:v14`.
 - **Azure Container Registry** (`fdehackdyh8j`) — submission image repository
   `fde-triage`.
 - **Log Analytics + Application Insights** — centralized telemetry when the
