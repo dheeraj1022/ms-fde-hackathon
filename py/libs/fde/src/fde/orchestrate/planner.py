@@ -59,39 +59,73 @@ def _account_id(goal: str) -> str | None:
 
 def _split_list(text: str) -> list[str]:
     normalized = re.sub(r"\s+and\s+", ", ", text)
-    return [part.strip() for part in normalized.split(",") if part.strip()]
+    return [part.strip(" \t\r\n.;:") for part in normalized.split(",") if part.strip(" \t\r\n.;:")]
 
 
 def _constraints_text(req: OrchestrateRequest) -> str:
     return " | ".join(req.constraints).lower()
 
 
+def _has_all(text: str, *needles: str) -> bool:
+    return all(needle in text for needle in needles)
+
+
+def _goal_matches(goal_lower: str, family: str) -> bool:
+    if family == "incident":
+        return "incident" in goal_lower and (
+            "affect" in goal_lower or "severity" in goal_lower or " sev" in goal_lower
+        )
+    if family == "inventory":
+        return ("inventory" in goal_lower or "stock" in goal_lower) and (
+            "alert" in goal_lower or "notify" in goal_lower
+        ) and (
+            "below" in goal_lower or "under" in goal_lower or "less than" in goal_lower
+        )
+    if family == "churn":
+        return _has_all(goal_lower, "churn", "risk")
+    if family == "reengagement":
+        return (
+            "not contacted" in goal_lower
+            or "no contact" in goal_lower
+            or "re-engagement" in goal_lower
+            or "reengagement" in goal_lower
+        )
+    if family == "meeting":
+        return _has_all(goal_lower, "schedule", "meeting", "acc-", "rep-")
+    if family == "onboarding":
+        return "onboarding" in goal_lower or "onboard" in goal_lower
+    if family == "renewal":
+        return "renewal" in goal_lower and "acc-" in goal_lower
+    return False
+
+
 async def try_template_plan(req: OrchestrateRequest, runner: ToolRunner) -> list[StepExecuted] | None:
     """Return a deterministic trace for known workflow families, else ``None``."""
     goal = req.goal.strip()
+    goal_lower = goal.lower()
     trace = _Trace(runner)
 
-    if goal.startswith("Respond to"):
+    if goal.startswith("Respond to") or _goal_matches(goal_lower, "incident"):
         if not _available(req, "inventory_query", "notification_send", "audit_log"):
             return None
         return await _plan_incident(req, trace)
 
-    if goal.startswith("Check inventory"):
+    if goal.startswith("Check inventory") or _goal_matches(goal_lower, "inventory"):
         if not _available(req, "inventory_query", "notification_send"):
             return None
         return await _plan_inventory(req, trace)
 
-    if goal.startswith("Analyze churn risk"):
+    if goal.startswith("Analyze churn risk") or _goal_matches(goal_lower, "churn"):
         if not _available(req, "crm_search", "subscription_check", "notification_send", "audit_log"):
             return None
         return await _plan_churn(req, trace)
 
-    if goal.startswith("Find accounts"):
+    if goal.startswith("Find accounts") or _goal_matches(goal_lower, "reengagement"):
         if not _available(req, "crm_search", "subscription_check", "email_send", "audit_log"):
             return None
         return await _plan_reengagement(req, trace)
 
-    if goal.startswith("Schedule a "):
+    if goal.startswith("Schedule a ") or _goal_matches(goal_lower, "meeting"):
         if not _available(
             req,
             "crm_get_account",
@@ -102,12 +136,12 @@ async def try_template_plan(req: OrchestrateRequest, runner: ToolRunner) -> list
             return None
         return await _plan_meeting(req, trace)
 
-    if goal.startswith("Run onboarding"):
+    if goal.startswith("Run onboarding") or _goal_matches(goal_lower, "onboarding"):
         if not _available(req, "crm_get_account", "subscription_check", "notification_send", "audit_log"):
             return None
         return await _plan_onboarding(req, trace)
 
-    if goal.startswith("Process contract renewal"):
+    if goal.startswith("Process contract renewal") or _goal_matches(goal_lower, "renewal"):
         if not _available(req, "crm_get_account", "subscription_check", "email_send", "audit_log"):
             return None
         return await _plan_contract_renewal(req, trace)
@@ -116,10 +150,20 @@ async def try_template_plan(req: OrchestrateRequest, runner: ToolRunner) -> list
 
 
 async def _plan_incident(req: OrchestrateRequest, trace: _Trace) -> list[StepExecuted] | None:
-    match = re.search(r"Respond to (\w+) incident affecting (.+?) in (.+?): check", req.goal)
-    if not match:
+    severity_match = re.search(
+        r"\b(critical|high|medium|low)\b(?:\s+severity)?\s+incident|incident.*?\bseverity[:=\s]+(critical|high|medium|low)",
+        req.goal,
+        re.IGNORECASE,
+    )
+    scope_match = re.search(
+        r"(?:affecting|for|on)\s+([A-Za-z0-9][\w.-]+)\s+(?:in|across)\s+(.+?)(?::|;|\s+-\s|\s+and\s+(?:check|notify|alert|escalate)\b|$)",
+        req.goal,
+        re.IGNORECASE,
+    )
+    if not severity_match or not scope_match:
         return None
-    severity, sku, warehouses_text = match.groups()
+    severity = (severity_match.group(1) or severity_match.group(2) or "").lower()
+    sku, warehouses_text = scope_match.groups()
     warehouses = _split_list(warehouses_text)
 
     for warehouse in warehouses:
@@ -153,7 +197,12 @@ async def _plan_incident(req: OrchestrateRequest, trace: _Trace) -> list[StepExe
 
 
 async def _plan_inventory(req: OrchestrateRequest, trace: _Trace) -> list[StepExecuted] | None:
-    match = re.search(r"Check inventory for (.+?) across (.+?) and alert .* below (\d+) units", req.goal)
+    match = re.search(
+        r"(?:inventory|stock)\s+(?:for|of)\s+(.+?)\s+(?:across|in)\s+(.+?)\s+"
+        r"(?:and\s+)?(?:alert|notify).*?(?:below|under|less than)\s+(\d+)\s+units",
+        req.goal,
+        re.IGNORECASE,
+    )
     if not match:
         return None
     sku, warehouses_text, threshold_text = match.groups()
@@ -238,8 +287,8 @@ async def _plan_churn(req: OrchestrateRequest, trace: _Trace) -> list[StepExecut
 
 
 async def _plan_reengagement(req: OrchestrateRequest, trace: _Trace) -> list[StepExecuted] | None:
-    days_match = re.search(r"not contacted in (\d+)\+ days", req.goal)
-    cap_match = re.search(r"max (\d+)\)", req.goal)
+    days_match = re.search(r"(?:not contacted|no contact|inactive)\s+(?:in|for)\s+(\d+)\+?\s+days", req.goal)
+    cap_match = re.search(r"(?:max|limit|up to)\s*(\d+)", req.goal, re.IGNORECASE)
     if not days_match or not cap_match:
         return None
 
@@ -265,7 +314,11 @@ async def _plan_reengagement(req: OrchestrateRequest, trace: _Trace) -> list[Ste
 
 
 async def _plan_meeting(req: OrchestrateRequest, trace: _Trace) -> list[StepExecuted] | None:
-    match = re.search(r"Schedule a (.+?) meeting with .+? \((ACC-\d+)\).*?with (REP-\d+)", req.goal)
+    match = re.search(
+        r"Schedule\s+(?:a\s+)?(.+?)\s+meeting\s+(?:with|for)\s+.+?\((ACC-\d+)\).*?(?:with|for)\s+(REP-\d+)",
+        req.goal,
+        re.IGNORECASE,
+    )
     if not match:
         return None
     meeting_type, account_id, rep_id = match.groups()

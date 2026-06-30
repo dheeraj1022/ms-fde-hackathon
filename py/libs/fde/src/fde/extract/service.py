@@ -8,8 +8,10 @@ is never dropped — dropping scores 0 for the whole document.
 """
 
 import base64
+import binascii
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -48,6 +50,7 @@ _NULL_SENTINELS = frozenset(
 # Keys the scorer ignores; we always set document_id ourselves, so drop any from the model.
 _RESERVED_KEYS = frozenset({"document_id", "difficulty"})
 _MISSING = object()
+_SPARSE_RETRY_THRESHOLD = 0.30
 
 
 def _parse_schema(raw: str | None) -> dict[str, Any] | None:
@@ -74,6 +77,40 @@ def _nullify(value: Any) -> Any:
 
 def _clean(raw: dict[str, Any]) -> dict[str, Any]:
     return {k: _nullify(v) for k, v in raw.items() if k not in _RESERVED_KEYS}
+
+
+def _key_token(key: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "", key.lower())
+
+
+def _has_signal(value: Any) -> bool:
+    value = _nullify(value)
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return any(_has_signal(item) for item in value)
+    if isinstance(value, dict):
+        return any(_has_signal(v) for k, v in value.items() if k not in _RESERVED_KEYS)
+    return True
+
+
+def _find_value_for_key(raw: dict[str, Any], key: str) -> Any:
+    if key in raw and _has_signal(raw[key]):
+        return raw[key]
+    target = _key_token(key)
+    fallback = _MISSING
+    for raw_key, value in raw.items():
+        if _key_token(str(raw_key)) != target:
+            continue
+        if _has_signal(value):
+            return value
+        if fallback is _MISSING:
+            fallback = value
+    if key in raw:
+        return raw[key]
+    return fallback
 
 
 def _lookup_ref(root: dict[str, Any], ref: str) -> dict[str, Any] | None:
@@ -139,6 +176,10 @@ def _schema_types(schema: dict[str, Any]) -> set[str]:
     return set()
 
 
+def _allows_null(schema: dict[str, Any]) -> bool:
+    return "null" in _schema_types(schema)
+
+
 def _kind_matches(value: Any, schema: dict[str, Any]) -> bool:
     types = _schema_types(schema)
     if not types:
@@ -186,12 +227,90 @@ def _schema_keys(schema: dict[str, Any]) -> list[str]:
     return list(dict.fromkeys(keys))
 
 
+def _schema_for_dynamic_key(schema: dict[str, Any], key: str) -> dict[str, Any] | None:
+    pattern_properties = schema.get("patternProperties")
+    if isinstance(pattern_properties, dict):
+        for pattern, subschema in pattern_properties.items():
+            if not isinstance(pattern, str) or not isinstance(subschema, dict):
+                continue
+            try:
+                if re.search(pattern, key):
+                    return subschema
+            except re.error:
+                continue
+    additional = schema.get("additionalProperties")
+    return additional if isinstance(additional, dict) else None
+
+
 def _extract_list(value: dict[str, Any]) -> list[Any] | None:
     for key in ("items", "rows", "line_items", "entries", "records", "data", "values"):
         candidate = value.get(key)
         if isinstance(candidate, list):
             return candidate
     return None
+
+
+def _wants_decimal_percent(schema: dict[str, Any]) -> bool:
+    text = " ".join(
+        str(schema.get(key, "")).lower()
+        for key in ("title", "description")
+    )
+    return "decimal representation" in text or "decimal form" in text
+
+
+def _coerce_number(value: Any, schema: dict[str, Any]) -> Any:
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int | float):
+        return int(value) if "integer" in _schema_types(schema) else value
+    if not isinstance(value, str):
+        return value
+    text = value.strip()
+    if not text:
+        return None
+    negative = text.startswith("(") and text.endswith(")")
+    match = re.search(r"-?\d[\d,]*(?:\.\d+)?", text)
+    if not match:
+        return value
+    number = float(match.group(0).replace(",", ""))
+    if negative:
+        number = -abs(number)
+    suffix = text[match.end():].strip().lower()
+    if re.match(r"^(m|mn|million)\b", suffix):
+        number *= 1_000_000
+    elif re.match(r"^(b|bn|billion)\b", suffix):
+        number *= 1_000_000_000
+    elif re.match(r"^(k|thousand)\b", suffix):
+        number *= 1_000
+    if ("%" in text or re.search(r"\bpercent(?:age)?\b", suffix)) and _wants_decimal_percent(schema):
+        number /= 100
+    if "integer" in _schema_types(schema):
+        return int(round(number))
+    return number
+
+
+def _coerce_boolean(value: Any) -> Any:
+    if isinstance(value, bool) or value is None:
+        return value
+    if isinstance(value, int | float):
+        return bool(value)
+    if not isinstance(value, str):
+        return value
+    token = value.strip().lower()
+    if token in {"true", "yes", "y", "checked", "selected", "x", "1", "pass", "passed"}:
+        return True
+    if token in {"false", "no", "n", "unchecked", "unselected", "0", "fail", "failed"}:
+        return False
+    return value
+
+
+def _coerce_scalar(value: Any, schema: dict[str, Any]) -> Any:
+    types = _schema_types(schema)
+    if types & {"number", "integer"}:
+        return _coerce_number(value, schema)
+    if "boolean" in types:
+        return _coerce_boolean(value)
+    return value
 
 
 def _shape_to_schema(value: Any, schema: Any, root: dict[str, Any]) -> Any:
@@ -201,18 +320,29 @@ def _shape_to_schema(value: Any, schema: Any, root: dict[str, Any]) -> Any:
     types = _schema_types(resolved)
 
     if value is None:
+        if "array" in types and not _allows_null(resolved):
+            return []
         return None
 
     if "object" in types:
         if not isinstance(value, dict):
             return None
+        preserved = _clean(value)
         properties = resolved.get("properties")
-        if not isinstance(properties, dict) or not properties:
-            return _clean(value)
         shaped: dict[str, Any] = {}
+        schema_key_set = set(_schema_keys(resolved))
+        for raw_key, raw_value in preserved.items():
+            dynamic_schema = None if raw_key in schema_key_set else _schema_for_dynamic_key(resolved, raw_key)
+            shaped[raw_key] = (
+                _shape_to_schema(raw_value, dynamic_schema, root)
+                if dynamic_schema is not None
+                else raw_value
+            )
+        if not isinstance(properties, dict) or not properties:
+            return shaped
         for key in _schema_keys(resolved):
             prop_schema = properties.get(key, {})
-            shaped[key] = _shape_to_schema(value.get(key, _MISSING), prop_schema, root)
+            shaped[key] = _shape_to_schema(_find_value_for_key(preserved, key), prop_schema, root)
         return shaped
 
     if "array" in types:
@@ -226,7 +356,7 @@ def _shape_to_schema(value: Any, schema: Any, root: dict[str, Any]) -> Any:
             return [_shape_to_schema(value, item_schema, root)]
         return None
 
-    return value
+    return _coerce_scalar(value, resolved)
 
 
 def _shape(raw: dict[str, Any], schema: dict[str, Any] | None) -> dict[str, Any]:
@@ -234,6 +364,96 @@ def _shape(raw: dict[str, Any], schema: dict[str, Any] | None) -> dict[str, Any]
         return _clean(raw)
     shaped = _shape_to_schema(raw, schema, schema)
     return _clean(shaped) if isinstance(shaped, dict) else {}
+
+
+def _schema_slot_count(schema: Any, root: dict[str, Any]) -> int:
+    resolved = _merge_all_of(_resolve_schema(schema, root), root)
+    resolved = _select_variant(resolved, None, root)
+    types = _schema_types(resolved)
+    properties = resolved.get("properties")
+    if "object" in types and isinstance(properties, dict) and properties:
+        return sum(
+            max(_schema_slot_count(properties.get(key, {}), root), 1)
+            for key in _schema_keys(resolved)
+        )
+    if "array" in types:
+        return 1
+    return 1
+
+
+def _present_slot_count(value: Any, schema: Any, root: dict[str, Any]) -> int:
+    resolved = _merge_all_of(_resolve_schema(schema, root), root)
+    resolved = _select_variant(resolved, value, root)
+    types = _schema_types(resolved)
+    properties = resolved.get("properties")
+    if "object" in types and isinstance(properties, dict) and properties:
+        if not isinstance(value, dict):
+            return 0
+        return sum(
+            _present_slot_count(_find_value_for_key(value, key), properties.get(key, {}), root)
+            for key in _schema_keys(resolved)
+        )
+    return 1 if _has_signal(value) else 0
+
+
+def _schema_coverage(raw: dict[str, Any], schema: dict[str, Any] | None) -> float:
+    if schema is None:
+        return 1.0 if _has_signal(raw) else 0.0
+    total = _schema_slot_count(schema, schema)
+    return _present_slot_count(raw, schema, schema) / total if total else 1.0
+
+
+def _signal_count(value: Any) -> int:
+    value = _nullify(value)
+    if value is None:
+        return 0
+    if isinstance(value, dict):
+        return sum(_signal_count(v) for k, v in value.items() if k not in _RESERVED_KEYS)
+    if isinstance(value, list):
+        return sum(_signal_count(v) for v in value)
+    if isinstance(value, str):
+        return 1 if value.strip() else 0
+    return 1
+
+
+def _merge_raw(primary: Any, fallback: Any) -> Any:
+    if not _has_signal(primary) and _has_signal(fallback):
+        return fallback
+    if isinstance(primary, dict) and isinstance(fallback, dict):
+        merged = dict(primary)
+        for key, value in fallback.items():
+            if key in _RESERVED_KEYS:
+                continue
+            merged[key] = _merge_raw(merged[key], value) if key in merged else value
+        return merged
+    if isinstance(primary, list) and isinstance(fallback, list):
+        return fallback if _signal_count(fallback) > _signal_count(primary) else primary
+    return primary
+
+
+def _image_mime(data: bytes) -> str:
+    if data.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if data.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if data.startswith((b"GIF87a", b"GIF89a")):
+        return "image/gif"
+    if data.startswith(b"RIFF") and data[8:12] == b"WEBP":
+        return "image/webp"
+    if data.startswith(b"BM"):
+        return "image/bmp"
+    if data.startswith((b"II*\x00", b"MM\x00*")):
+        return "image/tiff"
+    return "image/png"
+
+
+def _base64_data_url(content: str) -> str:
+    compact = "".join(content.split())
+    try:
+        data = base64.b64decode(compact, validate=True)
+    except (binascii.Error, ValueError):
+        return content
+    return f"data:{_image_mime(data)};base64,{compact}"
 
 
 def _image_ref(req: ExtractRequest) -> str | None:
@@ -249,7 +469,9 @@ def _image_ref(req: ExtractRequest) -> str | None:
         return None
     fmt = (req.content_format or "image_base64").strip().lower()
     if fmt in ("image_base64", "base64", ""):
-        return content
+        if content.startswith("data:"):
+            return content
+        return _base64_data_url(content)
     if fmt in ("image_url", "url", "data_url") or content.startswith(("http://", "https://", "data:")):
         return content
     if fmt == "image_path":
@@ -258,9 +480,9 @@ def _image_ref(req: ExtractRequest) -> str | None:
         except OSError:
             logger.warning("image_path %r not readable by this endpoint", content)
             return None
-        return base64.b64encode(data).decode("ascii")
+        return f"data:{_image_mime(data)};base64,{base64.b64encode(data).decode('ascii')}"
     # Unknown format: assume the content is already base64-encoded image bytes.
-    return content
+    return _base64_data_url(content)
 
 
 async def extract(req: ExtractRequest, client: LLMClient | None) -> ExtractResponse:
@@ -278,6 +500,19 @@ async def extract(req: ExtractRequest, client: LLMClient | None) -> ExtractRespo
                     image_b64=image_ref,
                     json_schema=schema,
                 )
+                if (
+                    isinstance(raw, dict)
+                    and schema is not None
+                    and _schema_coverage(raw, schema) < _SPARSE_RETRY_THRESHOLD
+                ):
+                    fallback = await client.extract_json(
+                        system=SYSTEM,
+                        user=build_user(schema),
+                        image_b64=image_ref,
+                        json_schema=None,
+                    )
+                    if isinstance(fallback, dict):
+                        raw = _merge_raw(raw, fallback)
             except Exception:
                 if schema is None:
                     raise

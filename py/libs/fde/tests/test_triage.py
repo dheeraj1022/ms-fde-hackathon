@@ -390,6 +390,122 @@ def test_service_recovers_hard_trigger_category_when_model_says_noise() -> None:
     assert out.needs_escalation is True
 
 
+def test_service_recovers_auth_outage_misread_as_certificate_threat() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(
+            category=Category.THREAT,
+            priority="P1",
+            team=Team.THREAT,
+            escalation=True,
+            missing=[MissingInfo.ANOMALY_READOUT],
+        )
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Quiet HERA auth failures across entire vessel",
+        description=(
+            "Authentication failures across the entire vessel. HERA sign-in success rate dropped to 42% "
+            "after a scheduled security certificate rotation on Registry Sync relays; SSO is affected."
+        ),
+    )
+    out = asyncio.run(triage(req, client))
+    assert out.category == Category.ACCESS
+    assert out.assigned_team == Team.IDENTITY
+    assert out.priority == "P1"
+    assert out.needs_escalation is True
+    assert out.missing_information == []
+
+
+def test_service_recovers_data_classification_policy_violation_as_threat() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.BRIEFING, priority="P4", team=Team.NONE, escalation=False, missing=[])
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Data classification policy violation flagged",
+        description=(
+            "Information protection flagged client PII and bank account numbers in ATLAS Archive "
+            "classified as General and shared with all crew instead of restricted."
+        ),
+    )
+    out = asyncio.run(triage(req, client))
+    assert out.category == Category.THREAT
+    assert out.assigned_team == Team.THREAT
+    assert out.priority == "P2"
+    assert out.needs_escalation is False
+    assert out.missing_information == [
+        MissingInfo.AFFECTED_CREW,
+        MissingInfo.AFFECTED_SUBSYSTEM,
+        MissingInfo.SYSTEM_CONFIGURATION,
+    ]
+
+
+def test_service_recovers_crashloop_service_as_software_and_deescalates_p1() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.DATA, priority="P1", team=Team.TELEMETRY, escalation=True, missing=[])
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="CrashLoopBackOff on payment service",
+        description=(
+            "payment service is down. kubectl describe pod shows CrashLoopBackOff, OOMKilled, "
+            "exit code 137, restart count 14, impacting customer transactions."
+        ),
+    )
+    out = asyncio.run(triage(req, client))
+    assert out.category == Category.SOFTWARE
+    assert out.assigned_team == Team.SOFTWARE
+    assert out.priority == "P2"
+    assert out.needs_escalation is False
+    assert out.missing_information == [MissingInfo.ANOMALY_READOUT, MissingInfo.HABITAT_CONDITIONS]
+
+
+def test_service_recovers_inventory_request_from_incident_overreaction() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(
+            category=Category.HULL,
+            priority="P1",
+            team=Team.SYSTEMS,
+            escalation=True,
+            missing=[MissingInfo.MODULE_SPECS, MissingInfo.ANOMALY_READOUT],
+        )
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Need a list of all devices assigned to my division",
+        description=(
+            "Follow-up to SIG-9199. I need a current inventory of all Mission Ops assets assigned "
+            "to my crew members for budget review and provisioning dates."
+        ),
+    )
+    out = asyncio.run(triage(req, client))
+    assert out.category == Category.BRIEFING
+    assert out.assigned_team == Team.NONE
+    assert out.priority == "P3"
+    assert out.needs_escalation is False
+    assert out.missing_information == [MissingInfo.AFFECTED_CREW]
+
+
+def test_service_lowers_fyi_certificate_threat_priority_without_losing_escalation() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.THREAT, priority="P2", team=Team.THREAT, escalation=True, missing=[])
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="FYI only — production TLS cert expired",
+        description=(
+            "The SSL security certificate expired and partners see certificate errors. "
+            "Reporter says no action needed but trade processing is down."
+        ),
+    )
+    out = asyncio.run(triage(req, client))
+    assert out.category == Category.THREAT
+    assert out.assigned_team == Team.THREAT
+    assert out.priority == "P4"
+    assert out.needs_escalation is True
+    assert out.missing_information == [MissingInfo.AFFECTED_SUBSYSTEM, MissingInfo.MISSION_IMPACT]
+
+
 # --- prompt sanity ------------------------------------------------------------
 
 

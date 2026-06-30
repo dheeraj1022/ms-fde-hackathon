@@ -77,6 +77,14 @@ _THREAT_MARKERS = (
     "certificate",
     "surveillance",
     "monitor crew",
+    "keylogger",
+    "data classification",
+    "policy violation",
+    "pii",
+    "personally identifiable",
+    "highly confidential",
+    "privacy",
+    "gdpr",
 )
 
 _ACCESS_MARKERS = (
@@ -85,7 +93,6 @@ _ACCESS_MARKERS = (
     "mfa",
     "sso",
     "login",
-    "log in",
     "authenticate",
     "authentication",
     "access denied",
@@ -93,6 +100,15 @@ _ACCESS_MARKERS = (
     "directory sync",
     "keycard",
     "airlock access",
+    "sign-in",
+    "sign in",
+    "hera",
+    "iam",
+    "saml",
+    "registry sync",
+    "access policy",
+    "zone-restricted",
+    "token",
 )
 
 _HULL_MARKERS = (
@@ -131,6 +147,13 @@ _COMMS_MARKERS = (
     "mesh",
     "transponder",
     "navigation",
+    "vpn",
+    "tunnel",
+    "network folder",
+    "drive letter",
+    "mapped drive",
+    "ping",
+    "ip address",
 )
 
 _DATA_MARKERS = (
@@ -144,14 +167,23 @@ _DATA_MARKERS = (
     "data feed",
     "dashboard",
     "retention",
-    "report",
+    "data vault",
+    "database",
+    "etl",
+    "data api",
+    "json response",
+    "reconciliation",
+    "disk utilization",
+    "disk full",
+    "capacity",
 )
 
 _SOFTWARE_MARKERS = (
     "software",
     "shipos",
     "firmware",
-    "app",
+    " app ",
+    "application",
     "portal",
     "license",
     "licence",
@@ -162,6 +194,19 @@ _SOFTWARE_MARKERS = (
     "integration",
     "deploy",
     "date-picker",
+    "service",
+    "api",
+    "crashloopbackoff",
+    "oomkilled",
+    "kubectl",
+    "pod",
+    "container",
+    "citrix",
+    "session freeze",
+    "freezing",
+    "hermes",
+    "janus",
+    "mercury",
 )
 
 _REQUEST_MARKERS = (
@@ -179,6 +224,53 @@ _REQUEST_MARKERS = (
     "policy",
     "inventory",
     "list of",
+    "asset registry",
+)
+
+_ACTIVE_THREAT_MARKERS = (
+    "hostile",
+    "boarding",
+    "intrusion",
+    "intruder",
+    "malware",
+    "phishing",
+    "spoof",
+    "impersonat",
+    "voice-clon",
+    "deepfake",
+    "credential theft",
+    "stealing credentials",
+    "exfiltrat",
+    "unauthorized access",
+    "suspicious access",
+    "lateral movement",
+    "surveillance",
+    "monitor crew",
+    "keylogger",
+)
+
+_POLICY_THREAT_MARKERS = (
+    "data classification",
+    "policy violation",
+    "client pii",
+    "social security",
+    "bank account",
+    "highly confidential",
+    "shared with all crew",
+    "privacy",
+    "data protection request",
+    "data protection rights",
+    "galactic data protection",
+    "regulatory impact",
+    "gdpr",
+)
+
+_CERTIFICATE_THREAT_MARKERS = (
+    "tls cert",
+    "ssl security certificate",
+    "security certificate expired",
+    "certificate expired",
+    "expired certificate",
 )
 
 _BROAD_ACTIONS: dict[Category, tuple[str, list[str]]] = {
@@ -257,25 +349,140 @@ def _wide_scope(text: str) -> bool:
     return _has_any(text, _WIDE_SCOPE_MARKERS) or bool(re.search(r"\b(?:\d{3,}|\d+\s*%)\s+(?:crew|users)\b", text))
 
 
+def _access_failure(text: str) -> bool:
+    auth_context = _has_any(
+        text,
+        (
+            "biometric",
+            "badge",
+            "mfa",
+            "sso",
+            "login",
+            "sign-in",
+            "sign in",
+            "authenticate",
+            "authentication",
+            "credential",
+            "keycard",
+            "airlock access",
+            "hera",
+            "iam",
+            "saml",
+            "registry sync",
+            "access policy",
+            "zone-restricted",
+            "token",
+        ),
+    )
+    if not auth_context:
+        return False
+    return _has_any(text, _ACCESS_MARKERS) and (
+        _is_failure(text)
+        or _has_any(
+            text,
+            (
+                "success rate dropped",
+                "locked out",
+                "cannot authenticate",
+                "can't authenticate",
+                "unable to authenticate",
+                "access denied",
+                "policy violation",
+                "certificate rotation",
+            ),
+        )
+    )
+
+
+def _threat_signal(text: str) -> bool:
+    if _has_any(text, _POLICY_THREAT_MARKERS):
+        return True
+    if _has_any(text, _ACTIVE_THREAT_MARKERS):
+        return True
+    return _has_any(text, _CERTIFICATE_THREAT_MARKERS) and not _access_failure(text)
+
+
+def _comms_failure(text: str) -> bool:
+    return _has_any(text, _COMMS_MARKERS) and (
+        _is_failure(text)
+        or _has_any(text, ("unreachable", "won't connect", "cannot connect", "connection", "keepalive", "route"))
+    )
+
+
+def _data_failure(text: str) -> bool:
+    return _has_any(text, _DATA_MARKERS) and (
+        _is_failure(text)
+        or _has_any(
+            text,
+            (
+                "discrepanc",
+                "mismatch",
+                "malformed",
+                "missing values",
+                "null values",
+                "stale",
+                "integrity",
+                "threshold",
+                "reconciliation",
+                "retention",
+            ),
+        )
+    )
+
+
+def _software_failure(text: str) -> bool:
+    if _has_any(text, ("market data", "data feed", "reporting dashboard", "source system", "etl pipeline")):
+        return False
+    if _comms_failure(text) and _has_any(text, ("network", "relay", "subspace", "dns", "ping", "ip address")):
+        return False
+    return _has_any(text, _SOFTWARE_MARKERS) and (
+        _is_failure(text)
+        or _has_any(text, ("wrong output", "malformed", "freeze", "freezing", "crashloopbackoff", "oomkilled"))
+    )
+
+
+def _hardware_failure(text: str) -> bool:
+    if _comms_failure(text) and _has_any(text, ("ip", "ping", "network", "node address", "beacon")):
+        return False
+    return _has_any(text, _HULL_MARKERS) and (_is_failure(text) or not _has_any(text, _SOFTWARE_MARKERS))
+
+
+def _inventory_request(text: str) -> bool:
+    return _has_any(text, ("inventory of all", "list of all", "assets assigned", "devices assigned")) and not _has_any(
+        text,
+        (
+            "offline",
+            "down",
+            "failing",
+            "error",
+            "alarm",
+            "malformed",
+            "crash",
+            "breach",
+            "unauthorized",
+        ),
+    )
+
+
 def _strong_category(text: str, hard_triggers: list[str]) -> Category | None:
     if hard_triggers:
         if any(label in hard_triggers for label in ("restricted-zone access", "containment breach")):
             return Category.THREAT
         return Category.HULL
-    if _has_any(text, _THREAT_MARKERS):
-        return Category.THREAT
-    if _has_any(text, _ACCESS_MARKERS) and (_is_failure(text) or _has_any(text, ("provision", "offboard", "onboard"))):
+    if _inventory_request(text):
+        return Category.BRIEFING
+    if _access_failure(text):
         return Category.ACCESS
-    if _has_any(text, _COMMS_MARKERS) and (_is_failure(text) or _has_any(text, ("route", "signal", "navigation"))):
-        return Category.COMMS
-    if _has_any(text, _DATA_MARKERS) and (
-        _is_failure(text) or _has_any(text, ("integrity", "mismatch", "missing", "capacity"))
-    ):
+    if _threat_signal(text):
+        return Category.THREAT
+    if _data_failure(text):
         return Category.DATA
-    if _has_any(text, _HULL_MARKERS) and (_is_failure(text) or not _has_any(text, _SOFTWARE_MARKERS)):
-        return Category.HULL
-    if _has_any(text, _SOFTWARE_MARKERS) and (_is_failure(text) or _has_any(text, ("renew", "configure", "install"))):
+    if _comms_failure(text):
+        return Category.COMMS
+    if _software_failure(text):
         return Category.SOFTWARE
+    if _hardware_failure(text):
+        return Category.HULL
     if _has_any(text, _REQUEST_MARKERS) and not _is_failure(text):
         return Category.BRIEFING
     return None
@@ -284,9 +491,20 @@ def _strong_category(text: str, hard_triggers: list[str]) -> Category | None:
 def _priority_floor(category: Category, text: str, hard_triggers: list[str]) -> str | None:
     if hard_triggers or (_wide_scope(text) and _is_failure(text)):
         return "P1"
-    if category == Category.THREAT and _has_any(text, _THREAT_MARKERS):
+    if category == Category.THREAT and _has_any(text, ("data protection", "gdpr", "regulatory impact")):
+        return "P1"
+    if category == Category.THREAT and (
+        _has_any(text, _ACTIVE_THREAT_MARKERS) or _has_any(text, _POLICY_THREAT_MARKERS)
+    ):
         return "P2"
     if _has_any(text, ("critical", "red alert", "unsafe", "no workaround", "mission blocked", "blocking mission")):
+        return "P2"
+    if category == Category.SOFTWARE and _has_any(
+        text,
+        ("crashloopbackoff", "oomkilled", "service is down", "production outage", "customer transactions"),
+    ):
+        return "P2"
+    if category == Category.DATA and _has_any(text, ("discrepancies", "threshold", "reconciliation exception")):
         return "P2"
     if category in (Category.HULL, Category.SOFTWARE, Category.COMMS, Category.DATA) and _has_any(
         text,
@@ -305,6 +523,71 @@ def _priority_floor(category: Category, text: str, hard_triggers: list[str]) -> 
     return None
 
 
+def _has_p1_evidence(category: Category, text: str, hard_triggers: list[str]) -> bool:
+    if hard_triggers:
+        return True
+    if _wide_scope(text) and _is_failure(text):
+        return True
+    return category == Category.THREAT and _has_any(text, ("data protection", "gdpr", "regulatory impact"))
+
+
+def _has_p2_evidence(category: Category, text: str) -> bool:
+    if category == Category.THREAT:
+        return _has_any(text, _ACTIVE_THREAT_MARKERS) or _has_any(text, _POLICY_THREAT_MARKERS)
+    if category == Category.SOFTWARE:
+        return _has_any(
+            text,
+            (
+                "crashloopbackoff",
+                "oomkilled",
+                "service is down",
+                "production outage",
+                "customer transactions",
+                "airlock",
+                "safety",
+            ),
+        )
+    if category == Category.DATA:
+        return _has_any(text, ("discrepancies", "threshold", "reconciliation exception"))
+    if category in (Category.HULL, Category.COMMS):
+        return _has_any(text, ("structural", "safety", "flight", "navigation", "airlock", "no workaround"))
+    return False
+
+
+def _priority_ceiling(category: Category, priority: str, text: str, hard_triggers: list[str]) -> str:
+    if _has_p1_evidence(category, text, hard_triggers):
+        return priority
+    if priority == "P1":
+        return "P2" if _has_p2_evidence(category, text) else "P3"
+    if priority == "P2" and category == Category.THREAT and _has_any(text, _CERTIFICATE_THREAT_MARKERS):
+        return "P4" if _has_any(text, ("fyi only", "no action needed")) else priority
+    return priority
+
+
+def _should_override_category(base_category: Category, target: Category, text: str, hard_triggers: list[str]) -> bool:
+    if hard_triggers:
+        return True
+    if target == Category.BRIEFING:
+        return _inventory_request(text) or base_category == Category.NOT_SIGNAL
+    if target == Category.NOT_SIGNAL:
+        return base_category == Category.BRIEFING
+    if base_category in (Category.NOT_SIGNAL, Category.BRIEFING):
+        return True
+    if target == Category.THREAT:
+        return _threat_signal(text)
+    if target == Category.ACCESS:
+        return _access_failure(text)
+    if target == Category.DATA:
+        return _data_failure(text) and not _threat_signal(text)
+    if target == Category.COMMS:
+        return _comms_failure(text)
+    if target == Category.SOFTWARE:
+        return _software_failure(text)
+    if target == Category.HULL:
+        return _hardware_failure(text)
+    return False
+
+
 def _looks_like_method_present(text: str) -> bool:
     return _has_any(text, ("badge", "pin", "mfa", "sso", "iris", "retina", "palm", "voice", "face", "facial"))
 
@@ -320,9 +603,15 @@ def _generic_missing(category: Category, text: str) -> list[MissingInfo]:
         if _is_failure(text) and not _has_any(text, ("error", "alarm", "readout", "code", "log", "screenshot")):
             missing.append(MissingInfo.ANOMALY_READOUT)
     elif category == Category.SOFTWARE:
-        if not _has_any(text, ("after ", "when ", "steps", "reproduce", "click", "opening", "during")):
+        if _has_any(text, ("crashloopbackoff", "oomkilled", "kubectl", "pod", "container")):
+            missing.extend([MissingInfo.ANOMALY_READOUT, MissingInfo.HABITAT_CONDITIONS])
+        elif not _has_any(text, ("after ", "when ", "steps", "reproduce", "click", "opening", "during")):
             missing.append(MissingInfo.SEQUENCE_TO_REPRODUCE)
-        if _is_failure(text) and not _has_any(text, ("error", "exception", "code", "stack", "log", "screenshot")):
+        if (
+            _is_failure(text)
+            and MissingInfo.ANOMALY_READOUT not in missing
+            and not _has_any(text, ("error", "exception", "code", "stack", "log", "screenshot"))
+        ):
             missing.append(MissingInfo.ANOMALY_READOUT)
     elif category == Category.COMMS:
         if not _looks_like_location_present(text):
@@ -331,9 +620,27 @@ def _generic_missing(category: Category, text: str) -> list[MissingInfo]:
             missing.append(MissingInfo.ANOMALY_READOUT)
     elif category == Category.ACCESS and not _looks_like_method_present(text):
         missing.append(MissingInfo.BIOMETRIC_METHOD)
-    elif category == Category.DATA and _is_failure(text) and not _has_any(text, ("error", "metric", "percent", "log")):
-        missing.append(MissingInfo.ANOMALY_READOUT)
-    return missing[:2]
+    elif category == Category.DATA:
+        if _has_any(text, ("report", "dashboard", "data feed", "market data", "etl", "disk", "storage", "data vault")):
+            missing.append(MissingInfo.HABITAT_CONDITIONS)
+        if _has_any(text, ("disk", "storage", "server", "data vault")):
+            missing.append(MissingInfo.AFFECTED_SUBSYSTEM)
+        elif _is_failure(text) and not _has_any(text, ("error", "metric", "percent", "log")):
+            missing.append(MissingInfo.ANOMALY_READOUT)
+    elif category == Category.THREAT:
+        if _has_any(text, _POLICY_THREAT_MARKERS):
+            missing.extend(
+                [
+                    MissingInfo.AFFECTED_CREW,
+                    MissingInfo.AFFECTED_SUBSYSTEM,
+                    MissingInfo.SYSTEM_CONFIGURATION,
+                ]
+            )
+        elif _has_any(text, _CERTIFICATE_THREAT_MARKERS):
+            missing.extend([MissingInfo.AFFECTED_SUBSYSTEM, MissingInfo.MISSION_IMPACT])
+    elif category == Category.BRIEFING and _inventory_request(text):
+        missing.append(MissingInfo.AFFECTED_CREW)
+    return missing[:3]
 
 
 def _broad_signal_normalization(
@@ -349,9 +656,7 @@ def _broad_signal_normalization(
 
     category_changed = target != base.category
     should_override_category = (
-        bool(hard_triggers)
-        or base.category in (Category.NOT_SIGNAL, Category.BRIEFING)
-        or target == Category.THREAT
+        _should_override_category(base.category, target, text, hard_triggers)
         or (base.category == Category.SOFTWARE and target == Category.HULL)
         or (category_changed and _wide_scope(text))
     )
@@ -363,19 +668,37 @@ def _broad_signal_normalization(
         priority = _more_severe(priority, floor)
     elif should_override_category and category not in (Category.NOT_SIGNAL, Category.BRIEFING) and _is_failure(text):
         priority = _more_severe(priority, "P3")
-    if category in (Category.NOT_SIGNAL, Category.BRIEFING) and not hard_triggers:
+    priority = _priority_ceiling(category, priority, text, hard_triggers)
+    if category == Category.NOT_SIGNAL and not hard_triggers:
         priority = "P4"
+    elif category == Category.BRIEFING and not hard_triggers:
+        priority = "P3" if _inventory_request(text) or "approved software" in text else "P4"
 
-    escalation = base.needs_escalation or bool(hard_triggers) or (
+    escalation = bool(hard_triggers) or (
         _wide_scope(text) and _is_failure(text) and category not in (Category.NOT_SIGNAL, Category.BRIEFING)
     )
+    if category in (Category.NOT_SIGNAL, Category.BRIEFING) and not hard_triggers:
+        escalation = False
     if category == Category.THREAT and _has_any(
         text,
-        ("hostile", "boarding", "intrusion", "malware", "spoof", "surveillance"),
+        (
+            "hostile",
+            "boarding",
+            "intrusion",
+            "malware",
+            "spoof",
+            "surveillance",
+            "certificate expired",
+            "tls cert",
+            "ssl security certificate",
+            "data protection",
+            "gdpr",
+            "regulatory impact",
+        ),
     ):
         escalation = True
 
-    missing = list(base.missing_information)
+    missing = [] if should_override_category and category_changed else list(base.missing_information)
     for item in _generic_missing(category, text):
         if item not in missing:
             missing.append(item)
@@ -465,7 +788,20 @@ def _prune_low_confidence_missing(req: TriageRequest, base: TriageResponse) -> T
         if item == MissingInfo.SOFTWARE_VERSION:
             return _has_any(text, ("version", "build", "firmware", "release", "driver"))
         if item == MissingInfo.MISSION_IMPACT:
-            return _has_any(text, ("impact", "blocking", "affected", "all crew", "entire vessel", "cannot work"))
+            return _has_any(
+                text,
+                (
+                    "impact",
+                    "blocking",
+                    "affected",
+                    "all crew",
+                    "entire vessel",
+                    "cannot work",
+                    "down",
+                    "outage",
+                    "processing",
+                ),
+            )
         if item == MissingInfo.STARDATE:
             return "stardate" in text
         if item == MissingInfo.SECTOR_COORDINATES:

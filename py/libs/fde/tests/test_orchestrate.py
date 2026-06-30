@@ -207,6 +207,59 @@ def test_template_planner_inventory_queries_all_before_alerting() -> None:
     assert steps[-1].parameters["user_id"] == "warehouse_mgr_APAC-SOUTH"
 
 
+def test_template_planner_inventory_paraphrase_stays_deterministic() -> None:
+    req = OrchestrateRequest(
+        task_id="TASK-INV-PARA",
+        goal=(
+            "Review stock of Sensor-B200 in EU-CENTRAL and APAC-SOUTH; notify warehouse managers "
+            "when stock is under 25 units"
+        ),
+        available_tools=_ALL_TOOLS,
+        constraints=["Only notify after checking every warehouse"],
+    )
+    runner = _RecordingRunner(
+        {"inventory_query": [{"quantity": 61}, {"quantity": 9}], "notification_send": [{}]}
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == ["inventory_query", "inventory_query", "notification_send"]
+    assert steps[-1].parameters["user_id"] == "warehouse_mgr_APAC-SOUTH"
+
+
+def test_template_planner_incident_paraphrase_stays_deterministic() -> None:
+    req = OrchestrateRequest(
+        task_id="TASK-INC-PARA",
+        goal=(
+            "Handle a high severity incident for Coolant-Q7 across US-EAST and EU-WEST - "
+            "check inventory, notify on-call, and escalate when severe"
+        ),
+        available_tools=_ALL_TOOLS,
+        constraints=["High severity incidents require manager escalation"],
+    )
+    runner = _RecordingRunner(
+        {
+            "inventory_query": [{"quantity": 11}, {"quantity": 3}],
+            "notification_send": [{}, {}],
+            "audit_log": [{}],
+        }
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == [
+        "inventory_query",
+        "inventory_query",
+        "notification_send",
+        "notification_send",
+        "audit_log",
+    ]
+    assert steps[2].parameters["user_id"] == "oncall_engineer"
+    assert steps[3].parameters["user_id"] == "engineering_manager"
+
+
 def test_template_planner_meeting_variant_uses_goal_type() -> None:
     req = OrchestrateRequest(
         task_id="TASK-MTG",
@@ -239,6 +292,39 @@ def test_template_planner_meeting_variant_uses_goal_type() -> None:
     ]
     assert steps[3].parameters["subject"] == "demo meeting"
     assert steps[4].parameters["details"]["type"] == "demo"
+
+
+def test_template_planner_meeting_paraphrase_uses_template() -> None:
+    req = OrchestrateRequest(
+        task_id="TASK-MTG-PARA",
+        goal=(
+            "Please schedule renewal meeting for Blue Yonder Airlines (ACC-0315) with REP-322; "
+            "verify tier and send invite if allowed"
+        ),
+        available_tools=_ALL_TOOLS,
+        constraints=["Free-tier accounts cannot schedule meetings"],
+    )
+    runner = _RecordingRunner(
+        {
+            "crm_get_account": [{"name": "Blue Yonder Airlines", "tier": "enterprise"}],
+            "subscription_check": [{"plan": "enterprise", "status": "active"}],
+            "calendar_check": [{"available_slots": ["2026-04-10T10:00"]}],
+            "email_send": [{}],
+            "audit_log": [{}],
+        }
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == [
+        "crm_get_account",
+        "subscription_check",
+        "calendar_check",
+        "email_send",
+        "audit_log",
+    ]
+    assert steps[3].parameters["subject"] == "renewal meeting"
 
 
 def test_template_planner_inactive_onboarding_does_not_require_email_tools() -> None:

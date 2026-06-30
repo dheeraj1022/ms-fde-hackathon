@@ -172,6 +172,103 @@ _TASK1_INPUTS: list[dict[str, Any]] = [
         "channel": "subspace_relay",
         "attachments": [],
     },
+    {
+        "ticket_id": "HARD-T1-013",
+        "subject": "Minor issue: HERA sign-in failures after certificate rotation",
+        "description": (
+            "Not a big deal, but HERA authentication success dropped to 39% after Registry Sync "
+            "certificate rotation. SSO is failing ship-wide and approximately 2,800 crew cannot work."
+        ),
+        "reporter": _reporter("Dante Sharma", "Propulsion"),
+        "created_at": "2026-05-01T09:48:00Z",
+        "channel": "bridge_terminal",
+        "attachments": [],
+    },
+    {
+        "ticket_id": "HARD-T1-014",
+        "subject": "ATLAS archive data classification policy violation",
+        "description": (
+            "Information protection found client PII, social security numbers, and bank account numbers "
+            "classified as General in an ATLAS Archive library shared with all crew."
+        ),
+        "reporter": _reporter("Rhea Patel", "Records"),
+        "created_at": "2026-05-01T09:52:00Z",
+        "channel": "subspace_relay",
+        "attachments": ["purview-alert.csv"],
+    },
+    {
+        "ticket_id": "HARD-T1-015",
+        "subject": "3rd time reporting this: CrashLoopBackOff on payment service",
+        "description": (
+            "payment service is down. kubectl describe pod shows CrashLoopBackOff, OOMKilled, "
+            "exit code 137, restart count 14. It impacts all customer transactions."
+        ),
+        "reporter": _reporter("David Lin", "Station Finance"),
+        "created_at": "2026-05-01T09:56:00Z",
+        "channel": "bridge_terminal",
+        "attachments": ["kubectl-describe.txt"],
+    },
+    {
+        "ticket_id": "HARD-T1-016",
+        "subject": "STILL BROKEN - need list of all devices assigned to my division",
+        "description": (
+            "Follow-up to SIG-9199. I need a current inventory of all Mission Ops assets assigned "
+            "to my crew members with provisioning dates for budget review. Please escalate to senior engineering."
+        ),
+        "reporter": _reporter("Hana Okafor", "Astrogation"),
+        "created_at": "2026-05-01T10:00:00Z",
+        "channel": "holodeck_comm",
+        "attachments": [],
+    },
+    {
+        "ticket_id": "HARD-T1-017",
+        "subject": "EXEC: market data API JSON response malformed",
+        "description": (
+            "The market data API now returns null bid/ask values and malformed JSON structures. "
+            "The downstream reconciliation service fails parsing after the ETL update. "
+            "The Chief Navigation Officer says this is highest priority."
+        ),
+        "reporter": _reporter("Frances Lee", "Navigation"),
+        "created_at": "2026-05-01T10:04:00Z",
+        "channel": "subspace_relay",
+        "attachments": [],
+    },
+    {
+        "ticket_id": "HARD-T1-018",
+        "subject": "Network 3D fabricator offline after node address change",
+        "description": (
+            "The comms network fabricator near the south turbolift is offline after a node address "
+            "change; old IP does not answer ping. There was a previous signal report but I cannot find it."
+        ),
+        "reporter": _reporter("Kevin Flores", "Observatory"),
+        "created_at": "2026-05-01T10:08:00Z",
+        "channel": "emergency_beacon",
+        "attachments": [],
+    },
+    {
+        "ticket_id": "HARD-T1-019",
+        "subject": "[Translated] 3rd time reporting this: terminal fan insanely loud",
+        "description": (
+            "The duty terminal fan has been grinding for three days. It overheats during calls, "
+            "but no error code is shown. People can hear it on bridge audio."
+        ),
+        "reporter": _reporter("Beatriz Silva", "Flight Deck"),
+        "created_at": "2026-05-01T10:12:00Z",
+        "channel": "bridge_terminal",
+        "attachments": [],
+    },
+    {
+        "ticket_id": "HARD-T1-020",
+        "subject": "FYI only - production TLS cert expired, trade processing down",
+        "description": (
+            "The SSL security certificate expired at midnight; partners see certificate errors and "
+            "the trade processing pipeline is down. Reporter says no action needed, but the outage is real."
+        ),
+        "reporter": _reporter("Nora Quinn", "Trade Ops"),
+        "created_at": "2026-05-01T10:16:00Z",
+        "channel": "subspace_relay",
+        "attachments": [],
+    },
 ]
 
 _TASK1_GOLD: list[dict[str, Any]] = [
@@ -295,11 +392,123 @@ _TASK1_GOLD: list[dict[str, Any]] = [
         "next_best_action": "Collect a reachable contact path and device details before alternate access.",
         "remediation_steps": ["Ask for alternate relay", "Collect off-ship device details"],
     },
+    {
+        "ticket_id": "HARD-T1-013",
+        "category": "Crew Access & Biometrics",
+        "priority": "P1",
+        "assigned_team": "Crew Identity & Airlock Control",
+        "needs_escalation": True,
+        "missing_information": [],
+        "next_best_action": "Roll back the Registry Sync certificate rotation causing ship-wide SSO failure.",
+        "remediation_steps": ["Restore the prior certificate", "Verify HERA sign-in success"],
+    },
+    {
+        "ticket_id": "HARD-T1-014",
+        "category": "Threat Detection & Containment",
+        "priority": "P2",
+        "assigned_team": "Threat Response Command",
+        "needs_escalation": False,
+        "missing_information": ["affected_crew", "affected_subsystem", "system_configuration"],
+        "next_best_action": "Restrict the ATLAS library and apply the correct sensitivity labels.",
+        "remediation_steps": ["Restrict library access", "Apply Highly Confidential labels"],
+    },
+    {
+        "ticket_id": "HARD-T1-015",
+        "category": "Flight Software & Instruments",
+        "priority": "P2",
+        "assigned_team": "Mission Software Operations",
+        "needs_escalation": False,
+        "missing_information": ["anomaly_readout", "habitat_conditions"],
+        "next_best_action": "Fix the OOMKilled payment-service CrashLoopBackOff.",
+        "remediation_steps": ["Increase memory limits", "Review recent deployment changes"],
+    },
+    {
+        "ticket_id": "HARD-T1-016",
+        "category": "Mission Briefing Request",
+        "priority": "P3",
+        "assigned_team": "None",
+        "needs_escalation": False,
+        "missing_information": ["affected_crew"],
+        "next_best_action": "Generate the division asset inventory report.",
+        "remediation_steps": ["Verify requester authorization", "Pull assets by division"],
+    },
+    {
+        "ticket_id": "HARD-T1-017",
+        "category": "Telemetry & Data Banks",
+        "priority": "P3",
+        "assigned_team": "Telemetry & Data Core",
+        "needs_escalation": False,
+        "missing_information": ["habitat_conditions"],
+        "next_best_action": "Diagnose the malformed market-data feed response after the ETL update.",
+        "remediation_steps": ["Compare feed schema before/after ETL update", "Patch null handling"],
+    },
+    {
+        "ticket_id": "HARD-T1-018",
+        "category": "Communications & Navigation",
+        "priority": "P3",
+        "assigned_team": "Deep Space Communications",
+        "needs_escalation": False,
+        "missing_information": ["crew_contact", "previous_signal_id", "sector_coordinates"],
+        "next_best_action": "Find the fabricator's current network location and previous signal.",
+        "remediation_steps": ["Check address beacon logs", "Ask for the prior signal ID"],
+    },
+    {
+        "ticket_id": "HARD-T1-019",
+        "category": "Hull & Structural Systems",
+        "priority": "P2",
+        "assigned_team": "Spacecraft Systems Engineering",
+        "needs_escalation": False,
+        "missing_information": ["module_specs", "stardate", "sequence_to_reproduce"],
+        "next_best_action": "Inspect the overheating terminal fan hardware.",
+        "remediation_steps": ["Collect terminal model", "Inspect fan and thermal telemetry"],
+    },
+    {
+        "ticket_id": "HARD-T1-020",
+        "category": "Threat Detection & Containment",
+        "priority": "P4",
+        "assigned_team": "Threat Response Command",
+        "needs_escalation": True,
+        "missing_information": ["affected_subsystem", "mission_impact"],
+        "next_best_action": "Renew and deploy the expired TLS certificate.",
+        "remediation_steps": ["Confirm expired certificate endpoints", "Deploy renewed certificate"],
+    },
 ]
 
 
 def _load_json(path: Path) -> list[dict[str, Any]]:
     return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _inline_task2_image(item: dict[str, Any]) -> str:
+    content = str(item["content"])
+    if item.get("content_format") == "image_path":
+        image_path = (_DATA_DIR / "task2" / content).resolve()
+        return base64.b64encode(image_path.read_bytes()).decode("ascii")
+    return content
+
+
+def _task2_variant(
+    source: dict[str, Any],
+    gold: dict[str, Any],
+    *,
+    document_id: str,
+    content_format: str,
+    content: str,
+    schema: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    variant = dict(source)
+    variant["document_id"] = document_id
+    variant["content_format"] = content_format
+    variant["content"] = content
+    if schema is not None:
+        variant["json_schema"] = json.dumps(schema, separators=(",", ":"))
+    variant_gold = dict(gold)
+    variant_gold["document_id"] = document_id
+    return variant, variant_gold
+
+
+def _with_wrapped_base64(raw: str, width: int = 76) -> str:
+    return "\n ".join(raw[i : i + width] for i in range(0, len(raw), width))
 
 
 def _build_task2_hard() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -317,6 +526,72 @@ def _build_task2_hard() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             item["content"] = base64.b64encode(image_path.read_bytes()).decode("ascii")
         hard_inputs.append(item)
         hard_golds.append(gold_by_id[document_id])
+
+    # Hidden-like transport/schema variants. They reuse known gold answers but
+    # mutate the envelope around the image/schema to stress tolerant ingestion.
+    source = input_by_id["DOC-OCR-0067"]
+    raw = _inline_task2_image(source)
+    variant, variant_gold = _task2_variant(
+        source,
+        gold_by_id["DOC-OCR-0067"],
+        document_id="HARD-T2-DATAURL-0067",
+        content_format="data_url",
+        content=f"data:image/png;base64,{raw}",
+    )
+    hard_inputs.append(variant)
+    hard_golds.append(variant_gold)
+
+    source = input_by_id["DOC-OCR-0743"]
+    raw = _inline_task2_image(source)
+    variant, variant_gold = _task2_variant(
+        source,
+        gold_by_id["DOC-OCR-0743"],
+        document_id="HARD-T2-WHITESPACE-0743",
+        content_format="image_base64",
+        content=_with_wrapped_base64(raw),
+    )
+    hard_inputs.append(variant)
+    hard_golds.append(variant_gold)
+
+    source = input_by_id["DOC-OCR-0814"]
+    raw = _inline_task2_image(source)
+    variant, variant_gold = _task2_variant(
+        source,
+        gold_by_id["DOC-OCR-0814"],
+        document_id="HARD-T2-UNKNOWNFMT-0814",
+        content_format="blob_image",
+        content=raw,
+    )
+    hard_inputs.append(variant)
+    hard_golds.append(variant_gold)
+
+    source = input_by_id["DOC-OCR-0600"]
+    schema = json.loads(str(source["json_schema"]))
+    variant, variant_gold = _task2_variant(
+        source,
+        gold_by_id["DOC-OCR-0600"],
+        document_id="HARD-T2-ALLOF-0600",
+        content_format="image_base64",
+        content=_inline_task2_image(source),
+        schema={"allOf": [schema]},
+    )
+    hard_inputs.append(variant)
+    hard_golds.append(variant_gold)
+
+    source = input_by_id["DOC-OCR-0700"]
+    schema = json.loads(str(source["json_schema"]))
+    glossary = schema["properties"]["glossary"]
+    glossary["type"] = ["array", "null"]
+    variant, variant_gold = _task2_variant(
+        source,
+        gold_by_id["DOC-OCR-0700"],
+        document_id="HARD-T2-NULLABLE-ARRAY-0700",
+        content_format="image_base64",
+        content=_inline_task2_image(source),
+        schema=schema,
+    )
+    hard_inputs.append(variant)
+    hard_golds.append(variant_gold)
     return hard_inputs, hard_golds
 
 
