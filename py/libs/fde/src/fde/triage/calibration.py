@@ -549,6 +549,19 @@ def _non_incident_noise(text: str) -> bool:
         "synthetic eval",
         "benchmark prompt injection",
         "fake outage",
+        "just kidding",
+        "formatting test",
+        "format test",
+        "test of the alert",
+        "drill template",
+        "copy-pasted from a drill",
+        "copied from a drill",
+        "this is a drill",
+        "this is only a test",
+        "no actual breach",
+        "no actual boarding",
+        "no actual incident",
+        "nothing is wrong",
     )
     scary_markers = (
         "hull breach",
@@ -654,6 +667,17 @@ def _physical_access_hardware_failure(text: str) -> bool:
     )
 
 
+def _life_support_numeric_alarm(text: str) -> bool:
+    """Catch numbers-only sensor dumps: dangerously low oxygen or cabin pressure."""
+    for match in re.finditer(r"\bo2\b[^0-9]{0,4}(\d{1,2}(?:\.\d+)?)\s*%", text):
+        if float(match.group(1)) < 15.0:
+            return True
+    for match in re.finditer(r"(?:psi|pressure)[^0-9]{0,8}(\d{1,2}(?:\.\d+)?)", text):
+        if float(match.group(1)) < 10.0:
+            return True
+    return False
+
+
 def _environment_life_support_emergency(text: str) -> bool:
     env_markers = (
         "life support",
@@ -667,6 +691,16 @@ def _environment_life_support_emergency(text: str) -> bool:
         "ventilation",
         "atmosphere numbers",
         "environmental reading",
+        # Non-English life-support vocabulary (Spanish/French/German).
+        "presion",
+        "presión",
+        "pression",
+        "oxigeno",
+        "oxígeno",
+        "oxygene",
+        "oxygène",
+        "sauerstoff",
+        "druck",
     )
     unsafe_markers = (
         "dropping",
@@ -684,10 +718,50 @@ def _environment_life_support_emergency(text: str) -> bool:
         "over the safe",
         "hissing",
         "loses pressure",
+        "losing pressure",
+        "lose pressure",
+        "losing cabin pressure",
+        "rapid pressure loss",
+        "pressure loss",
+        "venting atmosphere",
+        "air is venting",
+        "is venting",
+        "rushing out",
+        "air rushing",
+        "escaping out",
         "below the safe operating range",
         "suppressed",
+        # Non-English failure verbs.
+        "fuga",
+        "fuite",
+        "fractura",
+        "fracture",
+        "evacuando",
+        "evacuant",
+        "évacu",
+        "baisser",
+        "tombe a",
+        "tombe à",
+        "sinkt",
+        "fallend",
     )
-    return _has_any(text, env_markers) and _has_any(text, unsafe_markers) and not _non_incident_noise(text)
+    # Unambiguous depressurization phrases that are emergencies on their own.
+    standalone_markers = (
+        "venting atmosphere",
+        "atmosphere is venting",
+        "seal breach",
+        "micro-fracture",
+        "micro fracture",
+        "hull fracture",
+        "losing pressure",
+        "losing cabin pressure",
+        "rapid pressure loss",
+    )
+    if _non_incident_noise(text):
+        return False
+    if _has_any(text, standalone_markers) or _life_support_numeric_alarm(text):
+        return True
+    return _has_any(text, env_markers) and _has_any(text, unsafe_markers)
 
 
 def _strong_category(text: str, hard_triggers: list[str]) -> Category | None:
@@ -1119,7 +1193,7 @@ def apply_signal_pattern_calibration(
     text = _text(req)
     subject = req.subject.lower()
 
-    if not hard_triggers and _has_any(
+    if not hard_triggers and not _environment_life_support_emergency(text) and _has_any(
         text,
         (
             "coffee machine",
@@ -1153,7 +1227,7 @@ def apply_signal_pattern_calibration(
             ],
         )
 
-    if not hard_triggers and _non_incident_noise(text):
+    if not hard_triggers and not _environment_life_support_emergency(text) and _non_incident_noise(text):
         return _replace(
             base,
             category=Category.NOT_SIGNAL,

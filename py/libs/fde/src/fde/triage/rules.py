@@ -49,6 +49,15 @@ _HARD_TRIGGERS: list[tuple[str, str]] = [
         r"(?:restricted|containment|reactor|secure|airlock|vault)",
         "restricted-zone access",
     ),
+    (
+        r"(?:unauthor[is]z?ed|forced|illegal|stolen|cloned|tailgat|piggyback)"
+        r"[^.]{0,40}(?:enter|access|breach|intrus)[^.]{0,30}"
+        r"(?:restricted|reactor|vault|containment|secure|airlock|clean[- ]?room)",
+        "restricted-zone access",
+    ),
+    (r"unbefugter\s+zugriff", "restricted-zone access"),
+    (r"acceso no autorizado", "restricted-zone access"),
+    (r"acc[eè]s non autoris[eé]", "restricted-zone access"),
 ]
 
 _COMPILED: list[tuple[re.Pattern[str], str]] = [
@@ -76,6 +85,19 @@ _NON_INCIDENT_HARD_TRIGGER_CONTEXTS = (
     "no operational issue",
     "no incident",
     "not happening now",
+    "just kidding",
+    "formatting test",
+    "format test",
+    "test of the alert",
+    "drill template",
+    "copy-pasted from a drill",
+    "copied from a drill",
+    "this is a drill",
+    "this is only a test",
+    "no actual breach",
+    "no actual boarding",
+    "no actual incident",
+    "no actual emergency",
 )
 
 

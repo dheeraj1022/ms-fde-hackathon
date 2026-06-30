@@ -25,9 +25,12 @@ sys.path.insert(0, str(_REPO_ROOT / "common" / "libs" / "models" / "src"))  # no
 from run_hard_eval import _DATA_DIR  # noqa: E402
 from run_hard_eval import _HARD_MOCK_BASE_URL  # noqa: E402
 from run_hard_eval import _inline_task2_image  # noqa: E402
+from run_hard_eval import _mock  # noqa: E402
 from run_hard_eval import _start_mock_service  # noqa: E402
+from run_hard_eval import _step  # noqa: E402
 from run_hard_eval import _stop_mock_service  # noqa: E402
 from run_hard_eval import _task3_items  # noqa: E402
+from run_hard_eval import _tools  # noqa: E402
 from run_hard_eval import _with_wrapped_base64  # noqa: E402
 
 from ms.common.fdebenchkit.caller import call_endpoint  # noqa: E402
@@ -78,6 +81,181 @@ def _t1_case(
         "difficulty": "adversarial",
     }
     return item, gold
+
+
+def _noise_padding() -> str:
+    return (
+        "Weekly station digest: the hydroponics club meets Thursday, the cafeteria is "
+        "trialing a new protein loaf, reminder to file your quarterly training, the "
+        "observation deck rotation schedule changed, lost-and-found has three datapads, "
+        "and please welcome two new interns to the comms annex. In other news the gift "
+        "shop restocked mission patches and the book club is reading orbital poetry. "
+    )
+
+
+def _task1_extra_breakers() -> list[dict[str, Any]]:
+    """Second-round adversarial cases targeting broad judgment, not keywords."""
+    hull_p1 = {
+        "category": "Hull & Structural Systems",
+        "priority": "P1",
+        "team": "Spacecraft Systems Engineering",
+        "escalation": True,
+    }
+    threat_p1 = {
+        "category": "Threat Detection & Containment",
+        "priority": "P1",
+        "team": "Threat Response Command",
+        "escalation": True,
+    }
+    noise_p4 = {
+        "category": "Not a Mission Signal",
+        "priority": "P4",
+        "team": "None",
+        "escalation": False,
+        "missing": [],
+    }
+    cases: list[dict[str, Any]] = [
+        # Loud subject, but the body explicitly cancels it out (noise).
+        {
+            "subject": "URGENT P1 HULL BREACH IMMEDIATE ACTION",
+            "description": (
+                "Just kidding, this is a formatting test of the alert banner. Nothing is "
+                "wrong, no breach, please ignore and do not route."
+            ),
+            **noise_p4,
+        },
+        {
+            "subject": "EMERGENCY: HOSTILE BOARDING IN PROGRESS",
+            "description": (
+                "Disregard, copy-pasted from a drill template. There is no actual boarding "
+                "and no security event is occurring right now."
+            ),
+            **noise_p4,
+        },
+        # Calm/administrative subject hiding a real life-support emergency.
+        {
+            "subject": "Quick administrative note for the log",
+            "description": (
+                "Filing this calmly for tidiness: pressure in cargo lock 3 is at 7.9 psi "
+                "and still falling, the hull sensor flags a micro-fracture, crew evacuating."
+            ),
+            **hull_p1,
+            "missing": ["anomaly_readout"],
+        },
+        {
+            "subject": "FYI when you get a chance",
+            "description": (
+                "No rush intended, but forward berth oxygen is 13.5 percent and dropping; "
+                "two engineers are still inside and the scrubber tripped offline."
+            ),
+            **hull_p1,
+            "missing": ["habitat_conditions", "anomaly_readout"],
+        },
+        # Non-English real emergencies (model judgment, not English keywords).
+        {
+            "subject": "Alerta de la esclusa 2",
+            "description": (
+                "Hay una fuga de presion en la esclusa 2, el casco muestra una fractura y "
+                "la tripulacion esta evacuando el modulo."
+            ),
+            **hull_p1,
+            "missing": ["anomaly_readout"],
+        },
+        {
+            "subject": "Note discrete du laboratoire arriere",
+            "description": (
+                "Le niveau d'oxygene est tombe a 13 pour cent dans le module arriere et "
+                "continue de baisser; l'equipage reste a l'interieur."
+            ),
+            **hull_p1,
+            "missing": ["habitat_conditions"],
+        },
+        {
+            "subject": "Sicherheitsmeldung Sperrzone",
+            "description": (
+                "Unbefugter Zugriff auf die Sperrzone um 03:00 Uhr; ein unbekannter Ausweis "
+                "wurde am Reaktor-Schott verwendet."
+            ),
+            **threat_p1,
+            "missing": ["biometric_method"],
+            "channel": "emergency_beacon",
+        },
+        # Numbers-only sensor dumps with no prose keywords at all.
+        {
+            "subject": "Telemetry burst 0x41",
+            "description": "O2=12.8%; CO2=0.9%; PSI=7.6; dPSI_min=-0.4; berth=AFT-3; occupants=2",
+            **hull_p1,
+            "missing": ["habitat_conditions"],
+        },
+        {
+            "subject": "auto-report",
+            "description": "module=LAB-2 pressure_psi=8.1 trend=-0.3/min o2_pct=14.0 alarm=SUPPRESSED crew=1",
+            **hull_p1,
+            "missing": ["anomaly_readout"],
+        },
+        # Real signal buried inside a long, noisy newsletter body.
+        {
+            "subject": "Station digest and a quick note",
+            "description": (
+                _noise_padding()
+                + "Also, incidentally, hull sensor B12 reports a 6mm breach in the science "
+                "bay and air is venting; the deck is losing pressure now. "
+                + _noise_padding()
+            ),
+            **hull_p1,
+            "missing": ["anomaly_readout"],
+        },
+        # Sparse/empty body: subject carries the only real content (missing-info recall).
+        {
+            "subject": "Access denied repeatedly at airlock 4 biometric reader",
+            "description": "",
+            "category": "Crew Access & Biometrics",
+            "priority": "P2",
+            "team": "Crew Identity & Airlock Control",
+            "escalation": False,
+            "missing": ["biometric_method", "crew_contact", "module_specs"],
+        },
+        {
+            "subject": "   ",
+            "description": "subspace static; payload unreadable",
+            "category": "Communications & Navigation",
+            "priority": "P3",
+            "team": "Deep Space Communications",
+            "escalation": False,
+            "missing": ["anomaly_readout"],
+        },
+        # Two incidents in one signal: the worst one must win.
+        {
+            "subject": "Couple of things",
+            "description": (
+                "First, the break-room espresso machine is broken again. Second, airlock 2 "
+                "outer door shows a seal breach and the bay is losing pressure."
+            ),
+            **hull_p1,
+            "missing": ["anomaly_readout"],
+        },
+        {
+            "subject": "Two quick items for the board",
+            "description": (
+                "The projector in briefing room 4 flickers. Also an unauthorized badge "
+                "entered the restricted reactor vault at 02:10 and is unaccounted for."
+            ),
+            **threat_p1,
+            "missing": ["sensor_log_or_capture"],
+            "channel": "emergency_beacon",
+        },
+        # Sarcasm/understatement that still describes a true emergency.
+        {
+            "subject": "All good here, totally fine",
+            "description": (
+                "Oh sure, everything is perfect, except the cabin has been venting "
+                "atmosphere for ten minutes and my ears keep popping."
+            ),
+            **hull_p1,
+            "missing": ["habitat_conditions"],
+        },
+    ]
+    return cases
 
 
 def _task1_bruteforce() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -620,6 +798,12 @@ def _task1_bruteforce() -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
             }
         )
 
+    # Second brutal round: genuinely new break vectors that the deterministic
+    # English-keyword calibration cannot pattern-match. These stress broad model
+    # judgment (contradiction, other languages, numbers-only, buried signal,
+    # empty fields, multi-incident, sarcasm) the way hidden adversarial sets do.
+    cases.extend(_task1_extra_breakers())
+
     inputs: list[dict[str, Any]] = []
     golds: list[dict[str, Any]] = []
     for idx, case in enumerate(cases, start=1):
@@ -637,12 +821,16 @@ def _alias_name(counter: int) -> str:
     return f"answer_{counter:02d}"
 
 
-def _alias_schema_and_gold(schema: Any, gold: Any, counter: list[int]) -> tuple[Any, Any]:
+def _alias_schema(schema: Any, counter: list[int]) -> tuple[Any, Any]:
+    """Alias an object/array schema once, returning (aliased_schema, mapping).
+
+    The mapping is a structure-following transform applied to any conforming
+    value so that, crucially, every element of an array shares the *same*
+    aliased keys (the item shape is aliased exactly once).
+    """
     if isinstance(schema, dict) and schema.get("type") == "object" and isinstance(schema.get("properties"), dict):
         properties: dict[str, Any] = {}
-        required: list[str] = []
-        gold_obj = gold if isinstance(gold, dict) else {}
-        alias_gold: dict[str, Any] = {}
+        key_map: dict[str, Any] = {}
         for old_key, prop_schema in schema["properties"].items():
             counter[0] += 1
             new_key = _alias_name(counter[0])
@@ -651,26 +839,61 @@ def _alias_schema_and_gold(schema: Any, gold: Any, counter: list[int]) -> tuple[
             prop_copy["description"] = (
                 f"{description} Output this source field under key {new_key}; source label/key is {old_key!r}."
             ).strip()
-            aliased_schema, aliased_value = _alias_schema_and_gold(prop_copy, gold_obj.get(old_key), counter)
-            properties[new_key] = aliased_schema
-            alias_gold[new_key] = aliased_value
-        required = [new_key for new_key in properties]
+            aliased_child, child_map = _alias_schema(prop_copy, counter)
+            properties[new_key] = aliased_child
+            key_map[old_key] = (new_key, child_map)
         new_schema = {k: copy.deepcopy(v) for k, v in schema.items() if k not in {"properties", "required"}}
         new_schema["properties"] = properties
-        new_schema["required"] = required
-        return new_schema, alias_gold
+        new_schema["required"] = list(properties)
+        return new_schema, {"keys": key_map}
     if isinstance(schema, dict) and schema.get("type") == "array":
         item_schema = schema.get("items", {})
-        values = gold if isinstance(gold, list) else []
-        aliased_items = []
-        aliased_item_schema = item_schema
-        for value in values:
-            aliased_item_schema, aliased_value = _alias_schema_and_gold(item_schema, value, counter)
-            aliased_items.append(aliased_value)
+        aliased_item, item_map = _alias_schema(item_schema, counter)
         new_schema = copy.deepcopy(schema)
-        new_schema["items"] = aliased_item_schema
-        return new_schema, aliased_items
-    return copy.deepcopy(schema), copy.deepcopy(gold)
+        new_schema["items"] = aliased_item
+        return new_schema, {"items": item_map}
+    return copy.deepcopy(schema), None
+
+
+def _apply_alias(value: Any, mapping: Any) -> Any:
+    if mapping is None:
+        return copy.deepcopy(value)
+    if "keys" in mapping:
+        obj = value if isinstance(value, dict) else {}
+        return {
+            new_key: _apply_alias(obj.get(old_key), child)
+            for old_key, (new_key, child) in mapping["keys"].items()
+        }
+    if "items" in mapping:
+        seq = value if isinstance(value, list) else []
+        return [_apply_alias(item, mapping["items"]) for item in seq]
+    return copy.deepcopy(value)
+
+
+def _alias_schema_and_gold(schema: Any, gold: Any, counter: list[int]) -> tuple[Any, Any]:
+    aliased_schema, mapping = _alias_schema(schema, counter)
+    return aliased_schema, _apply_alias(gold, mapping)
+
+
+def _wrap_schema_and_gold(schema: Any, gold: Any, depth: int) -> tuple[Any, Any]:
+    """Nest an aliased schema/gold under generic wrapper keys.
+
+    Hidden schemas often bury the real fields under a non-semantic parent key.
+    If the model fails to nest its answer under the wrapper, the entire gold
+    subtree scores zero, so this is a high-signal structural stressor.
+    """
+    wrapped_schema = copy.deepcopy(schema)
+    wrapped_gold = copy.deepcopy(gold)
+    for level in range(depth):
+        key = f"section_{level:02d}"
+        wrapped_schema = {
+            "type": "object",
+            "description": f"Top-level wrapper. Place every extracted field under {key!r}.",
+            "properties": {key: wrapped_schema},
+            "required": [key],
+        }
+        wrapped_gold = {key: wrapped_gold}
+    return wrapped_schema, wrapped_gold
 
 
 def _task2_bruteforce(limit: int) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
@@ -685,10 +908,14 @@ def _task2_bruteforce(limit: int) -> tuple[list[dict[str, Any]], list[dict[str, 
         raw = _inline_task2_image(source)
         schema = json.loads(str(source["json_schema"]))
         alias_schema, alias_gold = _alias_schema_and_gold(schema, gold_by_id[doc_id], [0])
-        for suffix, content_format, content in (
-            ("ALIAS", "image_base64", raw),
-            ("ALIAS-DATAURL", "data_url", f"data:image/png;base64,{raw}"),
-            ("ALIAS-WRAPPED", "image_base64", _with_wrapped_base64(raw, width=53)),
+        wrap1_schema, wrap1_gold = _wrap_schema_and_gold(alias_schema, alias_gold, 1)
+        wrap2_schema, wrap2_gold = _wrap_schema_and_gold(alias_schema, alias_gold, 2)
+        for suffix, content_format, content, variant_schema, variant_gold in (
+            ("ALIAS", "image_base64", raw, alias_schema, alias_gold),
+            ("ALIAS-DATAURL", "data_url", f"data:image/png;base64,{raw}", alias_schema, alias_gold),
+            ("ALIAS-WRAPPED", "image_base64", _with_wrapped_base64(raw, width=53), alias_schema, alias_gold),
+            ("ALIAS-WRAP", "image_base64", raw, wrap1_schema, wrap1_gold),
+            ("ALIAS-DEEPWRAP", "image_base64", raw, wrap2_schema, wrap2_gold),
         ):
             variant_id = f"BRUTE-T2-{idx:03d}-{suffix}"
             item = dict(source)
@@ -697,10 +924,10 @@ def _task2_bruteforce(limit: int) -> tuple[list[dict[str, Any]], list[dict[str, 
                     "document_id": variant_id,
                     "content_format": content_format,
                     "content": content,
-                    "json_schema": json.dumps(alias_schema, separators=(",", ":")),
+                    "json_schema": json.dumps(variant_schema, separators=(",", ":")),
                 }
             )
-            gold = {"document_id": variant_id, "difficulty": "adversarial", **copy.deepcopy(alias_gold)}
+            gold = {"document_id": variant_id, "difficulty": "adversarial", **copy.deepcopy(variant_gold)}
             brute_inputs.append(item)
             brute_golds.append(gold)
     return brute_inputs, brute_golds
@@ -792,6 +1019,292 @@ def _task3_bruteforce() -> tuple[list[dict[str, Any]], list[dict[str, Any]], dic
         items.append(item)
         golds.append(gold)
         mocks[task_id] = mock_data
+
+    extra_items, extra_golds, extra_mocks = _task3_extra()
+    items.extend(extra_items)
+    golds.extend(extra_golds)
+    mocks.update(extra_mocks)
+    return items, golds, mocks
+
+
+def _t3_wire_endpoints(item: dict[str, Any]) -> dict[str, Any]:
+    mock_url = f"{_HARD_MOCK_BASE_URL}/{item['task_id']}"
+    item["mock_service_url"] = mock_url
+    for tool in item["available_tools"]:
+        tool["endpoint"] = f"{mock_url}/{tool['name']}"
+    return item
+
+
+def _task3_extra() -> tuple[list[dict[str, Any]], list[dict[str, Any]], dict[str, list[dict[str, Any]]]]:
+    """Brand-new T3 scenarios with their own mocks/golds (not paraphrases).
+
+    These target behaviours the public/hard set under-exercises: a two-retry
+    budget, a critical-severity escalation branch, a strict boundary threshold,
+    and the positive (non-blocked) meeting path.
+    """
+    items: list[dict[str, Any]] = []
+    golds: list[dict[str, Any]] = []
+    mocks: dict[str, list[dict[str, Any]]] = {}
+
+    # 1) Retry a failed lookup up to TWICE (public hard set only retries once).
+    items.append(
+        _t3_wire_endpoints(
+            {
+                "task_id": "BRUTE-T3-101",
+                "goal": (
+                    "Check inventory for Bandage-B2 across US-EAST, EU-WEST, APAC-SOUTH and "
+                    "alert warehouse managers below 30 units"
+                ),
+                "constraints": [
+                    "Retry a failed lookup up to twice before giving up",
+                    "Check all warehouses before sending any alerts",
+                    "Use slack for warehouse manager alerts",
+                ],
+                "available_tools": _tools("inventory_query", "notification_send", "audit_log"),
+            }
+        )
+    )
+    golds.append(
+        {
+            "task_id": "BRUTE-T3-101",
+            "constraints": items[-1]["constraints"],
+            "expected_outcome": {"template_id": "inventory_restock", "alerts": 2, "retried": True},
+            "expected_tools_used": ["inventory_query"] * 5 + ["notification_send"] * 2,
+            "steps": [
+                _step(1, "inventory_query", {"sku": "Bandage-B2", "warehouse": "US-EAST"}),
+                _step(2, "inventory_query", {"sku": "Bandage-B2", "warehouse": "EU-WEST"}),
+                _step(3, "inventory_query", {"sku": "Bandage-B2", "warehouse": "EU-WEST"}),
+                _step(4, "inventory_query", {"sku": "Bandage-B2", "warehouse": "EU-WEST"}),
+                _step(5, "inventory_query", {"sku": "Bandage-B2", "warehouse": "APAC-SOUTH"}),
+                _step(6, "notification_send", {"user_id": "warehouse_mgr_US-EAST", "channel": "slack"}, [1, 5]),
+                _step(7, "notification_send", {"user_id": "warehouse_mgr_EU-WEST", "channel": "slack"}, [4, 5]),
+            ],
+            "outcome_assertions": [
+                {"dimension": "goal_completion", "tool": "inventory_query", "check": "call_count", "min": 5},
+                {"dimension": "goal_completion", "tool": "notification_send", "check": "call_count", "equals": 2},
+                {
+                    "dimension": "constraint_compliance",
+                    "tool": "notification_send",
+                    "match": {"channel": "slack"},
+                    "check": "call_count",
+                    "equals": 2,
+                },
+                {"dimension": "constraint_compliance", "check": "tool_count", "max": 8},
+            ],
+            "ordered_dependencies": [[1, 6], [5, 6], [1, 7], [5, 7]],
+        }
+    )
+    mocks["BRUTE-T3-101"] = [
+        _mock("inventory_query", 0, {"sku": "Bandage-B2", "warehouse": "US-EAST", "quantity": 10}),
+        _mock("inventory_query", 1, {"error": "transient"}, status_code=500),
+        _mock("inventory_query", 2, {"error": "transient"}, status_code=500),
+        _mock("inventory_query", 3, {"sku": "Bandage-B2", "warehouse": "EU-WEST", "quantity": 25}),
+        _mock("inventory_query", 4, {"sku": "Bandage-B2", "warehouse": "APAC-SOUTH", "quantity": 50}),
+        *[_mock("notification_send", idx, {"sent": True}) for idx in range(2)],
+        _mock("audit_log", 0, {"logged": True}),
+    ]
+
+    # 2) CRITICAL incident MUST escalate to engineering manager (inverse of medium).
+    items.append(
+        _t3_wire_endpoints(
+            {
+                "task_id": "BRUTE-T3-102",
+                "goal": (
+                    "Respond to CRITICAL incident affecting Reactor-Cool-X1 in US-EAST, EU-WEST, "
+                    "APAC-SOUTH: check systems, notify on-call, escalate if needed"
+                ),
+                "constraints": [
+                    "Always notify on-call engineer first",
+                    "Critical and high severity incidents must be escalated to engineering manager",
+                    "Medium and low severity do not require escalation",
+                    "Use SMS for on-call, slack for manager",
+                    "Log all incident responses",
+                ],
+                "available_tools": _tools("inventory_query", "notification_send", "audit_log"),
+            }
+        )
+    )
+    golds.append(
+        {
+            "task_id": "BRUTE-T3-102",
+            "constraints": items[-1]["constraints"],
+            "expected_outcome": {"template_id": "incident_response", "severity": "critical", "escalated": True},
+            "expected_tools_used": [
+                "inventory_query",
+                "inventory_query",
+                "inventory_query",
+                "notification_send",
+                "notification_send",
+                "audit_log",
+            ],
+            "steps": [
+                _step(1, "inventory_query", {"sku": "Reactor-Cool-X1", "warehouse": "US-EAST"}),
+                _step(2, "inventory_query", {"sku": "Reactor-Cool-X1", "warehouse": "EU-WEST"}),
+                _step(3, "inventory_query", {"sku": "Reactor-Cool-X1", "warehouse": "APAC-SOUTH"}),
+                _step(4, "notification_send", {"user_id": "oncall_engineer", "channel": "sms"}, [1, 2, 3]),
+                _step(5, "notification_send", {"user_id": "engineering_manager", "channel": "slack"}, [4]),
+                _step(6, "audit_log", {"action": "incident_response"}, [5]),
+            ],
+            "outcome_assertions": [
+                {"dimension": "goal_completion", "tool": "inventory_query", "check": "call_count", "min": 3},
+                {
+                    "dimension": "constraint_compliance",
+                    "tool": "notification_send",
+                    "match": {"user_id": "oncall_engineer"},
+                    "check": "call_count",
+                    "equals": 1,
+                },
+                {
+                    "dimension": "constraint_compliance",
+                    "tool": "notification_send",
+                    "match": {"user_id": "engineering_manager"},
+                    "check": "call_count",
+                    "equals": 1,
+                },
+                {
+                    "dimension": "constraint_compliance",
+                    "tool": "audit_log",
+                    "match": {"action": "incident_response"},
+                    "check": "call_count",
+                    "equals": 1,
+                },
+                {"dimension": "constraint_compliance", "check": "tool_count", "max": 6},
+            ],
+            "ordered_dependencies": [[1, 4], [2, 4], [3, 4], [4, 5]],
+        }
+    )
+    mocks["BRUTE-T3-102"] = [
+        *[
+            _mock("inventory_query", idx, {"sku": "Reactor-Cool-X1", "warehouse": wh, "quantity": 5 + idx})
+            for idx, wh in enumerate(["US-EAST", "EU-WEST", "APAC-SOUTH"])
+        ],
+        *[_mock("notification_send", idx, {"sent": True}) for idx in range(2)],
+        _mock("audit_log", 0, {"logged": True}),
+    ]
+
+    # 3) Strict boundary: alert only warehouses STRICTLY below 40 (exactly 40 excluded).
+    items.append(
+        _t3_wire_endpoints(
+            {
+                "task_id": "BRUTE-T3-103",
+                "goal": (
+                    "Check inventory for Splint-S3 across US-EAST, EU-WEST, APAC-SOUTH, LATAM-NORTH "
+                    "and alert warehouse managers strictly below 40 units"
+                ),
+                "constraints": [
+                    "Alert only warehouses strictly below 40 units",
+                    "Check all warehouses before any alerts",
+                    "Use slack for warehouse manager alerts",
+                ],
+                "available_tools": _tools("inventory_query", "notification_send", "audit_log"),
+            }
+        )
+    )
+    golds.append(
+        {
+            "task_id": "BRUTE-T3-103",
+            "constraints": items[-1]["constraints"],
+            "expected_outcome": {"template_id": "inventory_restock", "alerts": 2},
+            "expected_tools_used": ["inventory_query"] * 4 + ["notification_send"] * 2,
+            "steps": [
+                _step(1, "inventory_query", {"sku": "Splint-S3", "warehouse": "US-EAST"}),
+                _step(2, "inventory_query", {"sku": "Splint-S3", "warehouse": "EU-WEST"}),
+                _step(3, "inventory_query", {"sku": "Splint-S3", "warehouse": "APAC-SOUTH"}),
+                _step(4, "inventory_query", {"sku": "Splint-S3", "warehouse": "LATAM-NORTH"}),
+                _step(5, "notification_send", {"user_id": "warehouse_mgr_EU-WEST", "channel": "slack"}, [1, 4]),
+                _step(6, "notification_send", {"user_id": "warehouse_mgr_LATAM-NORTH", "channel": "slack"}, [1, 4]),
+            ],
+            "outcome_assertions": [
+                {"dimension": "goal_completion", "tool": "inventory_query", "check": "call_count", "min": 4},
+                {"dimension": "goal_completion", "tool": "notification_send", "check": "call_count", "equals": 2},
+                {
+                    "dimension": "constraint_compliance",
+                    "tool": "notification_send",
+                    "match": {"channel": "slack"},
+                    "check": "call_count",
+                    "equals": 2,
+                },
+                {"dimension": "constraint_compliance", "check": "tool_count", "max": 6},
+            ],
+            "ordered_dependencies": [[1, 5], [4, 5], [1, 6], [4, 6]],
+        }
+    )
+    mocks["BRUTE-T3-103"] = [
+        _mock("inventory_query", 0, {"sku": "Splint-S3", "warehouse": "US-EAST", "quantity": 40}),
+        _mock("inventory_query", 1, {"sku": "Splint-S3", "warehouse": "EU-WEST", "quantity": 39}),
+        _mock("inventory_query", 2, {"sku": "Splint-S3", "warehouse": "APAC-SOUTH", "quantity": 41}),
+        _mock("inventory_query", 3, {"sku": "Splint-S3", "warehouse": "LATAM-NORTH", "quantity": 0}),
+        *[_mock("notification_send", idx, {"sent": True}) for idx in range(2)],
+        _mock("audit_log", 0, {"logged": True}),
+    ]
+
+    # 4) Positive path: a PAID, active account should actually get the meeting booked.
+    items.append(
+        _t3_wire_endpoints(
+            {
+                "task_id": "BRUTE-T3-104",
+                "goal": "Schedule a renewal meeting with Contoso Ltd (ACC-5500) next week with REP-77",
+                "constraints": [
+                    "Free-tier accounts cannot receive meetings",
+                    "Paid active accounts: book the slot, email the invite, then audit meeting_scheduled",
+                ],
+                "available_tools": _tools(
+                    "crm_get_account",
+                    "subscription_check",
+                    "calendar_check",
+                    "email_send",
+                    "audit_log",
+                ),
+            }
+        )
+    )
+    golds.append(
+        {
+            "task_id": "BRUTE-T3-104",
+            "constraints": items[-1]["constraints"],
+            "expected_outcome": {"template_id": "meeting_scheduler", "scheduled": True},
+            "expected_tools_used": [
+                "crm_get_account",
+                "subscription_check",
+                "calendar_check",
+                "email_send",
+                "audit_log",
+            ],
+            "steps": [
+                _step(1, "crm_get_account", {"account_id": "ACC-5500"}),
+                _step(2, "subscription_check", {"account_id": "ACC-5500"}),
+                _step(3, "calendar_check", {"user_id": "REP-77"}, [1, 2]),
+                _step(4, "email_send", {"account_id": "ACC-5500", "template": "meeting_invite"}, [3]),
+                _step(5, "audit_log", {"action": "meeting_scheduled"}, [4]),
+            ],
+            "outcome_assertions": [
+                {"dimension": "goal_completion", "tool": "calendar_check", "check": "call_count", "equals": 1},
+                {"dimension": "goal_completion", "tool": "email_send", "check": "call_count", "equals": 1},
+                {
+                    "dimension": "constraint_compliance",
+                    "tool": "email_send",
+                    "check": "call_count",
+                    "equals": 1,
+                },
+                {
+                    "dimension": "constraint_compliance",
+                    "tool": "audit_log",
+                    "match": {"action": "meeting_scheduled"},
+                    "check": "call_count",
+                    "equals": 1,
+                },
+            ],
+            "ordered_dependencies": [[1, 3], [2, 3], [3, 4], [4, 5]],
+        }
+    )
+    mocks["BRUTE-T3-104"] = [
+        _mock("crm_get_account", 0, {"account_id": "ACC-5500", "name": "Contoso Ltd", "tier": "enterprise"}),
+        _mock("subscription_check", 0, {"account_id": "ACC-5500", "plan": "enterprise", "status": "active"}),
+        _mock("calendar_check", 0, {"available_slots": ["2026-06-09T15:00:00Z"]}),
+        _mock("email_send", 0, {"sent": True}),
+        _mock("audit_log", 0, {"logged": True}),
+    ]
+
     return items, golds, mocks
 
 

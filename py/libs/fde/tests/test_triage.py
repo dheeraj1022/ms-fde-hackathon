@@ -581,6 +581,146 @@ def test_service_routes_physical_badge_reader_damage_to_systems() -> None:
     assert out.missing_information == [MissingInfo.MODULE_SPECS]
 
 
+def test_cancelled_hard_trigger_subject_is_closed_as_noise() -> None:
+    # Loud scary subject, body cancels it as a formatting test/drill.
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.HULL, priority="P1", team=Team.SYSTEMS, escalation=True)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="URGENT P1 HULL BREACH IMMEDIATE",
+        description="Just kidding, formatting test, nothing is wrong, no actual breach, please ignore.",
+    )
+    out = asyncio.run(triage(req, client))
+
+    assert detect_hard_triggers(f"{req.subject}\n{req.description}") == []
+    assert out.category == Category.NOT_SIGNAL
+    assert out.priority == "P4"
+    assert out.assigned_team == Team.NONE
+    assert out.needs_escalation is False
+
+
+def test_cancelled_boarding_drill_is_closed_as_noise() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.THREAT, priority="P2", team=Team.THREAT, escalation=True)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="HOSTILE BOARDING PARTY DECK 7",
+        description="Disregard, drill template, no actual boarding, this is a drill.",
+    )
+    out = asyncio.run(triage(req, client))
+
+    assert out.category == Category.NOT_SIGNAL
+    assert out.priority == "P4"
+    assert out.needs_escalation is False
+
+
+def test_real_breach_survives_co_occurring_noise_phrase() -> None:
+    # The espresso line must NOT suppress a co-occurring real depressurization.
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.NOT_SIGNAL, priority="P4", team=Team.NONE, escalation=False, missing=[])
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Espresso machine on deck 4 is broken again",
+        description="Also airlock 2 outer door shows a seal breach and the bay is losing pressure now.",
+    )
+    out = asyncio.run(triage(req, client))
+
+    assert out.category == Category.HULL
+    assert out.priority == "P1"
+    assert out.needs_escalation is True
+
+
+def test_buried_depressurization_in_long_noise_escalates() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.COMMS, priority="P2", team=Team.COMMS, escalation=False)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Weekly station digest and a quick note",
+        description=(
+            "Hydroponics club meets Thursday. Cafeteria menu changes next week. By the way there is a "
+            "6mm breach in the science bay and air is venting; the deck is losing pressure. Book club after."
+        ),
+    )
+    out = asyncio.run(triage(req, client))
+
+    assert out.category == Category.HULL
+    assert out.priority == "P1"
+    assert out.needs_escalation is True
+
+
+def test_unauthorized_entry_to_restricted_vault_escalates() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.ACCESS, priority="P2", team=Team.IDENTITY, escalation=False)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Badge note",
+        description="An unauthorized badge entered the restricted reactor vault at 02:10.",
+    )
+    out = asyncio.run(triage(req, client))
+
+    assert detect_hard_triggers(f"{req.subject}\n{req.description}") == ["restricted-zone access"]
+    assert out.priority == "P1"
+    assert out.needs_escalation is True
+
+
+def test_sarcastic_venting_atmosphere_escalates() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.HULL, priority="P3", team=Team.SYSTEMS, escalation=False)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="All good here, totally fine",
+        description="Oh sure, everything is perfect, except the cabin has been venting atmosphere for ten minutes.",
+    )
+    out = asyncio.run(triage(req, client))
+
+    assert out.category == Category.HULL
+    assert out.priority == "P1"
+    assert out.needs_escalation is True
+
+
+def test_numeric_sensor_dump_low_oxygen_escalates() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.HULL, priority="P2", team=Team.SYSTEMS, escalation=False)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Telemetry burst 0x41",
+        description="O2=12.8%; CO2=0.9%; PSI=7.6; dPSI_min=-0.4; berth=AFT-3; occupants=2",
+    )
+    out = asyncio.run(triage(req, client))
+
+    assert out.category == Category.HULL
+    assert out.priority == "P1"
+    assert out.needs_escalation is True
+
+
+def test_non_english_life_support_emergency_escalates() -> None:
+    def handler(*, system: str, user: str, response_model: type) -> TriageResponse:
+        return _resp(category=Category.HULL, priority="P4", team=Team.SYSTEMS, escalation=False)
+
+    client = FakeLLMClient(parse_handler=handler)
+    req = _req(
+        subject="Note discrete du laboratoire arriere",
+        description="Le niveau d'oxygene est tombe a 13 pour cent dans le module arriere et continue de baisser.",
+    )
+    out = asyncio.run(triage(req, client))
+
+    assert out.category == Category.HULL
+    assert out.priority == "P1"
+    assert out.needs_escalation is True
+
+
+def test_german_unauthorized_access_is_hard_trigger() -> None:
+    triggers = detect_hard_triggers("Unbefugter Zugriff auf die Sperrzone um 03:00 Uhr am Reaktor-Schott.")
+    assert "restricted-zone access" in triggers
+
+
 # --- prompt sanity ------------------------------------------------------------
 
 

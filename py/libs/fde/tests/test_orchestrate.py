@@ -204,6 +204,23 @@ class _FailOnceRunner(_RecordingRunner):
         return body, True, "ok"
 
 
+class _FailTwiceRunner(_RecordingRunner):
+    async def call(
+        self,
+        name: str,
+        params: dict[str, object],
+        *,
+        max_retries: int | None = None,
+    ) -> tuple[dict[str, object], bool, str]:
+        idx = self.counts.get(name, 0)
+        self.counts[name] = idx + 1
+        if name == "inventory_query" and idx in (0, 1):
+            return {}, False, "temporary failure"
+        options = self.responses.get(name) or [{}]
+        body = options[min(max(idx - 2, 0), len(options) - 1)]
+        return body, True, "ok"
+
+
 def test_template_planner_inventory_queries_all_before_alerting() -> None:
     req = OrchestrateRequest(
         task_id="TASK-INV",
@@ -282,6 +299,42 @@ def test_template_planner_inventory_sweep_paraphrase_and_retry_once() -> None:
         "warehouse_mgr_US-EAST",
         "warehouse_mgr_APAC-SOUTH",
     ]
+
+
+def test_template_planner_retries_failed_lookup_up_to_twice() -> None:
+    req = OrchestrateRequest(
+        task_id="TASK-INV-RETRY2",
+        goal=(
+            "Check inventory for Bandage-B2 across US-EAST, EU-WEST and alert warehouse "
+            "managers below 30 units"
+        ),
+        available_tools=_ALL_TOOLS,
+        constraints=[
+            "Retry a failed lookup up to twice before giving up",
+            "Check all warehouses before sending any alerts",
+        ],
+    )
+    runner = _FailTwiceRunner(
+        {"inventory_query": [{"quantity": 10}, {"quantity": 50}], "notification_send": [{}]}
+    )
+
+    steps = asyncio.run(try_template_plan(req, runner))  # type: ignore[arg-type]
+
+    assert steps is not None
+    assert [step.tool for step in steps] == [
+        "inventory_query",
+        "inventory_query",
+        "inventory_query",
+        "inventory_query",
+        "notification_send",
+    ]
+    assert [step.parameters["warehouse"] for step in steps[:4]] == [
+        "US-EAST",
+        "US-EAST",
+        "US-EAST",
+        "EU-WEST",
+    ]
+    assert steps[-1].parameters["user_id"] == "warehouse_mgr_US-EAST"
 
 
 def test_template_planner_incident_paraphrase_stays_deterministic() -> None:

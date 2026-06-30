@@ -67,6 +67,47 @@ def _constraints_text(req: OrchestrateRequest) -> str:
     return " | ".join(req.constraints).lower()
 
 
+def _retry_budget(text: str) -> int:
+    """Parse how many retries the goal/constraints permit for a failed lookup."""
+    lowered = text.lower()
+    three = (
+        "up to three times",
+        "up to thrice",
+        "three retries",
+        "3 retries",
+        "retry up to 3",
+        "retry up to three",
+    )
+    two = (
+        "up to twice",
+        "retry twice",
+        "two retries",
+        "2 retries",
+        "retry up to 2",
+        "retry up to two",
+    )
+    one = (
+        "retry once",
+        "one retry",
+        "single retry",
+        "retry on failure",
+        "retry failures",
+        "retry failed",
+        "retry one failed",
+        "handle failures with retry",
+        "resilience",
+        "retry up to 1",
+        "retry up to one",
+    )
+    if any(phrase in lowered for phrase in three):
+        return 3
+    if any(phrase in lowered for phrase in two):
+        return 2
+    if any(phrase in lowered for phrase in one):
+        return 1
+    return 0
+
+
 def _has_all(text: str, *needles: str) -> bool:
     return all(needle in text for needle in needles)
 
@@ -267,24 +308,14 @@ async def _plan_inventory(req: OrchestrateRequest, trace: _Trace) -> list[StepEx
     inventory: list[tuple[str, dict[str, Any]]] = []
 
     constraints = f"{_constraints_text(req)} | {req.goal.lower()}"
-    retry_failures = any(
-        phrase in constraints
-        for phrase in (
-            "retry once",
-            "one retry",
-            "retry on failure",
-            "retry failures",
-            "retry failed",
-            "retry one failed",
-            "handle failures with retry",
-            "resilience",
-        )
-    )
+    retry_budget = _retry_budget(constraints)
     for warehouse in _split_list(warehouses_text):
         params = {"sku": sku, "warehouse": warehouse}
         body, ok = await trace.call_result("inventory_query", params)
-        if retry_failures and not ok:
+        attempts = 0
+        while not ok and attempts < retry_budget:
             body, ok = await trace.call_result("inventory_query", params)
+            attempts += 1
         if not ok:
             body = {}
         inventory.append((warehouse, body))
